@@ -1,10 +1,12 @@
 /*
  * Open Source RFID Access Controller
  *
- * 8/31/2009 v1.15
+ * 4/12/2010 v1.16
  * Arclight - arclight@23.org
  * Danozano - danozano@gmail.com
  *
+ * Latest update fixes pin assignments to line up with new hardware design
+ * 
  * This program interfaces the Arduino to RFID, PIN pad and all
  * other input devices using the Wiegand-26 Communications
  * Protocol. It is recommended that the keypad inputs be
@@ -13,6 +15,7 @@
  * Outputs go to an open-collector relay driver for magnetic door hardware.
  * Analog inputs are used for alarm sensor monitoring.  These should probably be
  * isolated as well, since many sensors use +12V.
+ *
  */
 
 /* Header files - stuff we're including
@@ -56,16 +59,16 @@ long  userList [] = {arclight,danozano,kallahar,queeg,flea};  //User access tabl
 
 
 
-byte reader1Pins[]={4,5};               // Reader 1 connected to pins 4,5
-byte reader2Pins[]= {6,7};              // Reader2 connected to pins 6,7
+byte reader1Pins[]={2,3};               // Reader 1 connected to pins 4,5
+byte reader2Pins[]= {4,5};              // Reader2 connected to pins 6,7
 byte reader3Pins[]= {0,0};             // Reader3 connected to pins X,Y
 
-const byte analogsensorPins[] = {0,1};  //Alarm Sensors connected to other analog pins
-const byte alarmstrobePin= 2;                   // Strobe/pre-action pin
-const byte alarmsirenPin = 3;                   // Siren/Alarm output pin
-const byte alarmPins[]= {0,1};                  // Alarm sensor zones
-const byte doorPin[]   = { 8,9};                // Door Open pins
-const byte doorledPin[] = {2,2};           // Access Granted LEDs (optional) 
+const byte analogsensorPins[] = {0,1,2,3};  //Alarm Sensors connected to other analog pins
+const byte alarmstrobePin= 8;                   // Strobe/pre-action pin
+const byte alarmsirenPin = 9;                   // Siren/Alarm output pin
+const byte alarmPins[]= {0,1,2,3};                  // Alarm sensor zones
+const byte doorPin[]   = {6,7};                 // Door Open pins
+const byte doorledPin[] = {8,8};                // Access Granted LEDs (optional) 
 
 
 
