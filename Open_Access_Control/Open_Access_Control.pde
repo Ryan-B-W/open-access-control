@@ -1,9 +1,12 @@
 /*
  * Open Source RFID Access Controller
  *
- * 4/12/2010 v1.16
+ * 10/5/2010 v1.17
  * Arclight - arclight@23.org
  * Danozano - danozano@gmail.com
+ *
+ * For latest downloads, including Eagle CAD files for the hardware, check out
+ * http://code.google.com/p/open-access-control/downloads/list
  *
  * Latest update fixes pin assignments to line up with new hardware design
  * 
@@ -16,6 +19,14 @@
  * Analog inputs are used for alarm sensor monitoring.  These should probably be
  * isolated as well, since many sensors use +12V.
  *
+ * Version 1.00 of hte wardware uses the following pin assignments on a standard Arduino:
+ * Relay outpus on digital pins 6,7,8,9
+ * DS1407 Real Time Clok (I2C):A4 (SDA), A5 (SCL)
+ * Analog pins (for alarm):A0,A1,A2,A3
+ * Reader 1: pins 2,3
+ * Reader 2: pins 4,5
+ * Ethernet: pins 10,11,12,13
+ *
  */
 
 /* Header files - stuff we're including
@@ -25,6 +36,7 @@
 #include <EEPROM.h>       //Needed for saving to non-voilatile memory on the Arduino.
 
 #include <Ethernet.h>   //Ethernet stuff, comment out if not used.
+#include <SPI.h>
 #include <Server.h>
 #include <Client.h>
 
@@ -51,22 +63,17 @@ long  userList [] = {arclight,danozano,kallahar,queeg,flea};  //User access tabl
 
 #define EEPROM_ALARM 0                  // EEPROM address to store alarm state between reboots (0..511)
 #define EEPROM_ALARMARMED 1             // EEPROM address to store alarm armed state between reboots
-#define EEPROM_ALARMZONES 20            // Starting ddress to store "normal" analog values for alarm zone sensor reads.
+#define EEPROM_ALARMZONES 20            // Starting address to store "normal" analog values for alarm zone sensor reads.
 #define KEYPADTIMEOUT 5000              // Timeout for pin pad entry.
-                                        // Pins we're using to talk I2C protocol to the RTC
-                                        // Analog input pin4 = I2C SDA
-                                        // Analog input pin5 = I2C SCL
-
 
 
 byte reader1Pins[]={2,3};               // Reader 1 connected to pins 4,5
 byte reader2Pins[]= {4,5};              // Reader2 connected to pins 6,7
-byte reader3Pins[]= {0,0};             // Reader3 connected to pins X,Y
+//byte reader3Pins[]= {0,0};             // Reader3 connected to pins X,Y (Not implemented on v1.00 Access Control Board)
 
-const byte analogsensorPins[] = {0,1,2,3};  //Alarm Sensors connected to other analog pins
+const byte analogsensorPins[] = {0,1,2,3};      //Alarm Sensors connected to other analog pins
 const byte alarmstrobePin= 8;                   // Strobe/pre-action pin
 const byte alarmsirenPin = 9;                   // Siren/Alarm output pin
-const byte alarmPins[]= {0,1,2,3};                  // Alarm sensor zones
 const byte doorPin[]   = {6,7};                 // Door Open pins
 const byte doorledPin[] = {8,8};                // Access Granted LEDs (optional) 
 
@@ -74,7 +81,7 @@ const byte doorledPin[] = {8,8};                // Access Granted LEDs (optional
 
 #define numUsers (sizeof(userList)/sizeof(long))                  //User access array size (used in later loops/etc)
 #define NUMDOORS (sizeof(doorPin)/sizeof(byte))
-#define numAlarmPins (sizeof(alarmPins)/sizeof(byte))
+#define numAlarmPins (sizeof(analogsensorPins)/sizeof(byte))
 
 //Other global variables
 
@@ -92,27 +99,26 @@ volatile int  reader2Count = 0;
 volatile long reader3 = 0;
 volatile int  reader3Count = 0;
 
-/* Create an instance of the various C++ libraries we are using.
-*/
+  /* Create an instance of the various C++ libraries we are using.
+  */
 
-  DS1307 ds1307;
-  WIEGAND26 wiegand26;
-  PCATTACH pcattach;
+  DS1307 ds1307;        // RTC Instance
+  WIEGAND26 wiegand26;  // Wiegand26 (RFID reader serial protocol) library
+  PCATTACH pcattach;    // Software interrupt library
     
 
 
-void setup(){
+void setup(){           // Runs once at Arduino boot-up
 
   
 Wire.begin();   // start Wire library as I2C-Bus Master
 
-/*
-Attach pin change interrupt service routines from the Wiegand RFID readers
-*/
-pcattach.PCattachInterrupt(reader1Pins[0], callReader1Zero, CHANGE); 
-pcattach.PCattachInterrupt(reader1Pins[1], callReader1One,  CHANGE);  
-pcattach.PCattachInterrupt(reader2Pins[1], callReader2One,  CHANGE);
-pcattach.PCattachInterrupt(reader2Pins[0], callReader2Zero, CHANGE);
+  /* Attach pin change interrupt service routines from the Wiegand RFID readers
+  */
+  pcattach.PCattachInterrupt(reader1Pins[0], callReader1Zero, CHANGE); 
+  pcattach.PCattachInterrupt(reader1Pins[1], callReader1One,  CHANGE);  
+  pcattach.PCattachInterrupt(reader2Pins[1], callReader2One,  CHANGE);
+  pcattach.PCattachInterrupt(reader2Pins[0], callReader2Zero, CHANGE);
 
   //Clear and initialize readers
   wiegand26.initReaderOne(); //Set up Reader 1 and clear buffers.
@@ -140,12 +146,12 @@ pcattach.PCattachInterrupt(reader2Pins[0], callReader2Zero, CHANGE);
 }
 
 
-void loop()
-{                          // Main branch, runs over and over again
+void loop()                                     // Main branch, runs over and over again
+{                         
 
 
 
-  // rfid polling is interrupt driven, just test for the reader1Count value to climb to the bit length of the key
+  // Notes: RFID polling is interrupt driven, just test for the reader1Count value to climb to the bit length of the key
   // change reader1Count & reader1 et. al. to arrays for loop handling of multiple reader output events
   // later change them for interrupt handling as well!
   // currently hardcoded for a single reader unit
