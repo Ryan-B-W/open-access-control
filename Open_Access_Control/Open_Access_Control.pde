@@ -34,7 +34,7 @@
  */
 
 /* Header files - stuff we're including
-*/
+ */
 
 #include <Wire.h>         // Needed for I2C Connection to the DS1307 date/time chip
 #include <EEPROM.h>       // Needed for saving to non-voilatile memory on the Arduino.
@@ -50,20 +50,21 @@
 
 
 /* User List - Implemented as an array for testing or small installations.
-*/
+ */
 
 #define queeg      111111       // Name and badge number in HEX. We are not using checksums or site ID, just the whole
-                                // output string from the reader.
+// output string from the reader.
 #define arclight   0x14B949D    
 #define kallahar   0x2B46B62
 #define danozano   0x3909D3
 #define flea       0x5555555
 
-long  superUserList[] = {arclight,danozano,kallahar,queeg,flea};  //User access table (Move to flash later)
+long  superUserList[] = {
+  arclight,danozano,kallahar,queeg,flea};  //User access table (Move to flash later)
 
 
 #define DOORDELAY 2500                  // How long to open door lock once access is granted. (2500 = 2.5s)
-#define SENSORTHRESHOLD 100             // Voltage level (0-1024) below which an alarm zone is considered open. 0..1024 == 0..5V
+#define SENSORTHRESHOLD 50             // Analog sensor change that will trigger an alarm (0..255)
 
 #define EEPROM_ALARM 0                  // EEPROM address to store alarm state between reboots (0..511)
 #define EEPROM_ALARMARMED 1             // EEPROM address to store alarm armed state between reboots
@@ -76,17 +77,25 @@ long  superUserList[] = {arclight,danozano,kallahar,queeg,flea};  //User access 
 //#define NUMUSERS 200
 
 #define DOORPIN1 relayPins[2]           // Define door 1 pin
-#define DOORPIN2 relayPins[2]           // Define door 2 pin
+#define DOORPIN2 relayPins[1]           // Define door 2 pin
 #define ALARMSTROBEPIN relayPins[0]     // Define the reader LED pin
 #define ALARMSIRENPIN relayPins[3]      // Define the alarm siren pin
 
-byte reader1Pins[]={2,3};               // Reader 1 connected to pins 4,5
-byte reader2Pins[]= {4,5};              // Reader2 connected to pins 6,7
+byte reader1Pins[]={
+  2,3};               // Reader 1 connected to pins 4,5
+byte reader2Pins[]= {
+  4,5};              // Reader2 connected to pins 6,7
 //byte reader3Pins[]= {10,11};                // Reader3 connected to pins X,Y (Not implemented on v1.00 Access Control Board)
 
-const byte analogsensorPins[] = {0,1,2,3};    // Alarm Sensors connected to other analog pins
-const byte relayPins[]= {6,7,8,9};            // Relay output pins
+const byte analogsensorPins[] = {
+  0,1,2,3};    // Alarm Sensors connected to other analog pins
+const byte relayPins[]= {
+  6,7,8,9};            // Relay output pins
+bool door1Locked=true;                        //Keeps track of whether the doors are supposed to be locked.
+bool door2Locked=true;
 
+long door1locktimer=0;
+long door2locktimer=0;
 
 #define numUsers (sizeof(superUserList)/sizeof(long))                  //User access array size (used in later loops/etc)
 #define NUMDOORS (sizeof(doorPin)/sizeof(byte))
@@ -110,22 +119,22 @@ volatile int  reader2Count = 0;
 
 long keypadTime = 0;                                  // Timeout counter for  reader with key pad
 long keypadValue=0;
-  /* Create an instance of the various C++ libraries we are using.
-  */
+/* Create an instance of the various C++ libraries we are using.
+ */
 
-  DS1307 ds1307;        // RTC Instance
-  WIEGAND26 wiegand26;  // Wiegand26 (RFID reader serial protocol) library
-  PCATTACH pcattach;    // Software interrupt library
-    
+DS1307 ds1307;        // RTC Instance
+WIEGAND26 wiegand26;  // Wiegand26 (RFID reader serial protocol) library
+PCATTACH pcattach;    // Software interrupt library
+
 
 
 void setup(){           // Runs once at Arduino boot-up
 
-  
-Wire.begin();   // start Wire library as I2C-Bus Master
+
+    Wire.begin();   // start Wire library as I2C-Bus Master
 
   /* Attach pin change interrupt service routines from the Wiegand RFID readers
-  */
+   */
   pcattach.PCattachInterrupt(reader1Pins[0], callReader1Zero, CHANGE); 
   pcattach.PCattachInterrupt(reader1Pins[1], callReader1One,  CHANGE);  
   pcattach.PCattachInterrupt(reader2Pins[1], callReader2One,  CHANGE);
@@ -135,39 +144,39 @@ Wire.begin();   // start Wire library as I2C-Bus Master
   wiegand26.initReaderOne(); //Set up Reader 1 and clear buffers.
   wiegand26.initReaderTwo(); 
 
-  
+
   //Initialize output relays
-  
+
   for(byte i=0; i<4; i++){        
-     pinMode(relayPins[i], OUTPUT);                                                      
-     digitalWrite(relayPins[i], LOW);        //Sets the relay outputs to HIGH (relays off)
+    pinMode(relayPins[i], OUTPUT);                                                      
+    digitalWrite(relayPins[i], LOW);        //Sets the relay outputs to HIGH (relays off)
   }
 
- 
-//ds1307.setDateDs1307(0,18,22,2,12,10,10);         
-                                               /*  Sets the date/time (needed once at commissioning)
 
-                                               byte second,        // 0-59
-                                               byte minute,        // 0-59
-                                               byte hour,          // 1-23
-                                               byte dayOfWeek,     // 1-7
-                                               byte dayOfMonth,    // 1-28/29/30/31
-                                               byte month,         // 1-12
-                                               byte year);          // 0-99
-                                               */
+  //ds1307.setDateDs1307(0,18,22,2,12,10,10);         
+  /*  Sets the date/time (needed once at commissioning)
+   
+   byte second,        // 0-59
+   byte minute,        // 0-59
+   byte hour,          // 1-23
+   byte dayOfWeek,     // 1-7
+   byte dayOfMonth,    // 1-28/29/30/31
+   byte month,         // 1-12
+   byte year);          // 0-99
+   */
 
- 
+
 
   Serial.begin(57600);	               	       //Set up Serial output at 8,N,1,57,600bps
   logReboot();
-  chirpAlarm(8,ALARMSIRENPIN);                 //Chirp the alarm 8 times to show system ready.
+  chirpAlarm(1,ALARMSIRENPIN);                 //Chirp the alarm to show system ready.
 
-//hardwareTest(100);      // IO Pin testing routing (use to check your inputs with hi/lo +(5-12V) sources)
-                           // Also checks relay outputs.
+  //hardwareTest(100);      // IO Pin testing routing (use to check your inputs with hi/lo +(5-12V) sources)
+  // Also checks relay outputs.
 
-//insertUser(0, 64, 0x14B2164);
-//insertUser(199, 64, 0x14B949D); 
-dumpUsers();
+  //insertUser(0, 64, 0x14B2164);
+  //insertUser(199, 64, 0x14B949D); 
+  dumpUsers();
 
 
 }
@@ -175,20 +184,37 @@ void loop()                                     // Main branch, runs over and ov
 {                         
 
 
+  /* Check if doors are supposed to be locked and lock them 
+   * if needed.
+   */
+
+  if(((millis() - door1locktimer) >= DOORDELAY) && door1locktimer !=0)
+  { 
+    if(door1Locked==true); 
+    doorLock(DOORPIN1);
+    door1locktimer=0;
+  }
+
+  if(((millis() - door2locktimer) >= DOORDELAY) && door2locktimer !=0)
+  { 
+    if(door2Locked==true); 
+    doorLock(DOORPIN2); 
+    door2locktimer=0;
+  }   
 
   /* Check physical sensors with 
-     the logic below. Behavior is based on
-     the current alarmArmed value.
-     0=disarmed 
-     1=armed
-     2=
-     3=
-     4=door chime only (Unlock DOOR1, Check zone 0/chirp alarm if active)
- 
- */
- 
+   the logic below. Behavior is based on
+   the current alarmArmed value.
+   0=disarmed 
+   1=armed
+   2=
+   3=
+   4=door chime only (Unlock DOOR1, Check zone 0/chirp alarm if active)
+   
+   */
 
- 
+
+
   switch(alarmArmed) {
   case 0:
     {
@@ -196,15 +222,15 @@ void loop()                                     // Main branch, runs over and ov
     }
   case 1: 
     {                                               // Alarm is armed, check sensor zones.
-        if(alarmStatus==0){ 
-          for(byte i=0; i<numAlarmPins; i++) {
-            if(pollAlarm(i) ==1 ){
-              alarmState(1);                        // If zone is tripped, immediately set AlarmStatus to 1 (alarm immediate).
-                                                    // Only do this once if alarm activated.
-                                 }
-                                             }
-    } 
-       
+      if(alarmStatus==0){ 
+        for(byte i=0; i<numAlarmPins; i++) {
+          if(pollAlarm(i) ==1 ){
+            alarmState(1);                        // If zone is tripped, immediately set AlarmStatus to 1 (alarm immediate).
+            // Only do this once if alarm activated.
+          }
+        }
+      } 
+
       break;  
     } 
 
@@ -222,23 +248,23 @@ void loop()                                     // Main branch, runs over and ov
       break;  
     }
   }
-  
-  
-  
-  
+
+
+
+
   // Notes: RFID polling is interrupt driven, just test for the reader1Count value to climb to the bit length of the key
   // change reader1Count & reader1 et. al. to arrays for loop handling of multiple reader output events
   // later change them for interrupt handling as well!
   // currently hardcoded for a single reader unit
 
-/* This code checks a reader with a 26-bit keycard input and a keypad. Use the second routine for 
+  /* This code checks a reader with a 26-bit keycard input and a keypad. Use the second routine for 
    readers without keypads.  A 5-second window for commands is opened after each successful key access read.
-*/
+   */
 
 
   if(reader1Count >= 26){                                //  tag presented to reader1
     logTagPresent(reader1,1);                            //  write log entry to serial port
-                                                         //  CHECK TAG IN OUR LIST OF USERS. -255 = no match
+    //  CHECK TAG IN OUR LIST OF USERS. -255 = no match
     if((checkSuperuser(reader1) > 0) ||checkUser(reader1) >0)
     {                                                    //  if > 0 there is a match. checkSuperuser (reader1) is the userList () index 
       logAccessGranted(reader1, 1);                      //  log and unlock door 1
@@ -249,17 +275,19 @@ void loop()                                     // Main branch, runs over and ov
       }                                            
 
       doorUnlock(DOORPIN1);                                           // Unlock the door.
+      door1locktimer=millis();
       wiegand26.initReaderOne();
       long keypadTime = 0;                                     // Timeout counter for  reader with key pad
       long keypadValue=0;
       keypadTime   = millis();              
 
       while((millis() - keypadTime)  <=KEYPADTIMEOUT){
-                                                               // If access granted, open 5 second window for pin pad commands.
+        // If access granted, open 5 second window for pin pad commands.
         if(reader1Count >=4){
           if(reader1 !=0xB){                         //Pin pad command can be any length, terminated with '#' ont he keypad.
             if(keypadValue ==0){             
               keypadValue = reader1; 
+
             }
             else if(keypadValue !=0) {
               keypadValue = keypadValue <<4;
@@ -267,7 +295,7 @@ void loop()                                     // Main branch, runs over and ov
             }
             wiegand26.initReaderOne();                         //Reset reader one and move on.
           } 
-
+          else break;
 
         }
 
@@ -282,13 +310,13 @@ void loop()                                     // Main branch, runs over and ov
     else if(checkSuperuser(reader1) !=1) {           // If no user match, log entry written
       logAccessDenied(reader1,1);                 // no tickee, no laundree
     }
-                                                           
+
     wiegand26.initReaderOne();
 
   }                      
- 
 
-  
+
+
 
 
 
@@ -300,18 +328,17 @@ void loop()                                     // Main branch, runs over and ov
       logAccessGranted(reader2, 2);                // Log and unlock door 2
       //  CHECK TAG IN OUR LIST OF USERS. -255 = no match
       if(alarmStatus !=0){
-    
+
       }
       alarmState(0);                            //  Deactivate Alarm
       doorUnlock(DOORPIN2);                        // Unlock the door.
-
-
+      door2locktimer=millis();
 
     }
     else if(checkSuperuser(reader2) !=1) {           //  no match, log entry written
       logAccessDenied(reader2,2);                 //  no tickee, no laundree
     }
-  
+
     wiegand26.initReaderTwo();                   //  Reset for next tag scan
 
   }
@@ -329,7 +356,7 @@ void loop()                                     // Main branch, runs over and ov
 
 
 
- 
+
 void runCommand(long command) {         // Run any commands entered at the pin pad.
 
   switch(command) {                              
@@ -362,7 +389,7 @@ void runCommand(long command) {         // Run any commands entered at the pin p
   case 0x4:
     {
       trainAlarm();                // Train the alarm sensors. Sets the default level (0..1024) for sensors in 
-                                   // non-activated state to be in.
+      // non-activated state to be in.
       chirpAlarm(4,ALARMSIRENPIN);
       break;
     }
@@ -407,7 +434,7 @@ byte alarmState(byte alarmLevel) {        //Changes the alarm status
       alarmStatus = alarmLevel;                    //Set global alarm level variable
       break;  
     }        
-      
+
   case 2: 
     {
       digitalWrite(ALARMSIRENPIN, HIGH);          // If alarmLevel == 2 turn on strobe and siren (LOUD ALARM)
@@ -449,8 +476,8 @@ byte pollAlarm(byte input){
 
   // Return 1 if sensor shows < pre-defined voltage.
   if(abs((analogRead(analogsensorPins[input])/4) - EEPROM.read(EEPROM_ALARMZONES+input)) >SENSORTHRESHOLD){
-  logalarmSensor(input);
-  EEPROM.write(EEPROM_ALARM,input);  //Save the alarm sensor tripped to eeprom
+    logalarmSensor(input);
+    EEPROM.write(EEPROM_ALARM,input);  //Save the alarm sensor tripped to eeprom
     return 1;
 
   }
@@ -458,22 +485,26 @@ byte pollAlarm(byte input){
 }
 
 void trainAlarm(){                       //Train the system about the default states of the alarm pins.
-  int temp[5]={0,0,0,0,0};
+  int temp[5]={
+    0,0,0,0,0  };
   int avg;
-  
+
   logtrainAlarm();
   for(int i=0; i<numAlarmPins; i++) {  //Save results to EEPROM
 
     for(int j=0; j<5;j++){
       temp[j]=analogRead(analogsensorPins[i]);
-                         }
-      avg=((temp[0]+temp[1]+temp[2]+temp[3]+temp[4])/20);
-      Serial.print("Sensor ");Serial.print(i);Serial.print(" ");
-      Serial.print("value:");Serial.println(avg);
-      EEPROM.write((EEPROM_ALARMZONES+i),byte(avg)); 
-      avg=0;
+    }
+    avg=((temp[0]+temp[1]+temp[2]+temp[3]+temp[4])/20);
+    Serial.print("Sensor ");
+    Serial.print(i);
+    Serial.print(" ");
+    Serial.print("value:");
+    Serial.println(avg);
+    EEPROM.write((EEPROM_ALARMZONES+i),byte(avg)); 
+    avg=0;
   }
-  
+
 
 
 }
@@ -494,7 +525,11 @@ void armAlarm(byte level){                       //Arm the alarm and set to leve
 int checkSuperuser(long input){       //Check to see if user is in the user list. If yes, return their index value.
   for(int i=0; i<=numUsers; i++){   
     if(input == superUserList[i]){
-      return(1);
+      logDate();
+      Serial.print("Superuser");
+      Serial.print(i,DEC);
+      Serial.print(" found in table.");
+      return(i);
     }
   }                   
   return -255;             //If no, return -255
@@ -516,21 +551,24 @@ void doorUnlock(int input) {          //Send an unlock signal to the door and fl
   Serial.print("Door ");
   Serial.print(input,DEC);
   Serial.println(" unlocked");
-  delay(DOORDELAY);
-  digitalWrite(input,LOW );
-  Serial.print("Door ");
-  Serial.print(input,DEC);
-  Serial.println(" relocked");
+
 }
 
+void doorLock(int input) {          //Send an unlock signal to the door and flash the Door LED
+  digitalWrite(input, LOW);
+  Serial.print("Door ");
+  Serial.print(input,DEC);
+  Serial.println(" locked");
+  digitalWrite(input,LOW );
 
+}
 void lockall() {                      //Lock down all doors. Can also be run periodically to safeguard system.
 
-    digitalWrite(DOORPIN1, LOW);
-    digitalWrite(DOORPIN2,LOW);
-    Serial.print("All Doors ");
-    Serial.println(" relocked");
-  }
+  digitalWrite(DOORPIN1, LOW);
+  digitalWrite(DOORPIN2,LOW);
+  Serial.print("All Doors ");
+  Serial.println(" relocked");
+}
 
 /* Logging Functions - Modify these as needed for your application. 
  Logging may be serial to USB or via Ethernet (to be added later)
@@ -553,7 +591,7 @@ void logDate()
   Serial.print("  Day_of_week:");
   Serial.print(dayOfWeek, DEC);
   Serial.print(" ");
-  
+
 }
 
 void logReboot() {                                  //Log system startup
@@ -612,7 +650,7 @@ void logunLock(long user, byte door) {        //Log unlock events
   Serial.print(user,HEX);
   Serial.print(" unlocked door ");
   Serial.println(door,DEC);
-  
+
 }
 
 void logalarmState(byte level) {        //Log unlock events
@@ -627,8 +665,8 @@ void logalarmArmed(byte level) {        //Log unlock events
   Serial.println(level,DEC);
 }
 /* Wrapper functions for interrupt attachment
-   Could be cleaned up in library?
-*/
+ Could be cleaned up in library?
+ */
 void callReader1Zero()
 {
   wiegand26.reader1Zero();
@@ -669,143 +707,150 @@ void hardwareTest(long iterations)
    * "HIGH" or "1" when connected.
    */
 
-pinMode(2,INPUT);
-pinMode(3,INPUT);
-pinMode(4,INPUT);
-pinMode(5,INPUT);
+  pinMode(2,INPUT);
+  pinMode(3,INPUT);
+  pinMode(4,INPUT);
+  pinMode(5,INPUT);
 
-pinMode(6,OUTPUT);
-pinMode(7,OUTPUT);
-pinMode(8,OUTPUT);
-pinMode(9,OUTPUT);
+  pinMode(6,OUTPUT);
+  pinMode(7,OUTPUT);
+  pinMode(8,OUTPUT);
+  pinMode(9,OUTPUT);
 
-for(long counter=1; counter<=iterations; counter++) {                                  // Do this endlessly
-logDate();
- Serial.print("\n"); 
- Serial.println("Pass: "); 
- Serial.println(counter); 
- Serial.print("Input 2:");                    // Digital input testing
- Serial.println(digitalRead(2));
- Serial.print("Input 3:");
- Serial.println(digitalRead(3));
- Serial.print("Input 4:");
- Serial.println(digitalRead(4));
- Serial.print("Input 5:");
- Serial.println(digitalRead(5));
- Serial.print("Input A0:");                   // Analog input testing
- Serial.println(analogRead(0));
- Serial.print("Input A1:");
- Serial.println(analogRead(1));
- Serial.print("Input A2:");
- Serial.println(analogRead(2));
- Serial.print("Input A3:");
- Serial.println(analogRead(3));
- delay(5000);
+  for(long counter=1; counter<=iterations; counter++) {                                  // Do this endlessly
+    logDate();
+    Serial.print("\n"); 
+    Serial.println("Pass: "); 
+    Serial.println(counter); 
+    Serial.print("Input 2:");                    // Digital input testing
+    Serial.println(digitalRead(2));
+    Serial.print("Input 3:");
+    Serial.println(digitalRead(3));
+    Serial.print("Input 4:");
+    Serial.println(digitalRead(4));
+    Serial.print("Input 5:");
+    Serial.println(digitalRead(5));
+    Serial.print("Input A0:");                   // Analog input testing
+    Serial.println(analogRead(0));
+    Serial.print("Input A1:");
+    Serial.println(analogRead(1));
+    Serial.print("Input A2:");
+    Serial.println(analogRead(2));
+    Serial.print("Input A3:");
+    Serial.println(analogRead(3));
+    delay(5000);
 
- digitalWrite(6,HIGH);                         // Relay exercise routine
- digitalWrite(7,HIGH);
- digitalWrite(8,HIGH);
- digitalWrite(9,HIGH);
- Serial.println("Relays 0..3 activated");
- delay(2000);
- digitalWrite(6,LOW);
- digitalWrite(7,LOW);
- digitalWrite(8,LOW);
- digitalWrite(9,LOW);
- Serial.println("Relays 0..3 activated");
- delay(2000);
- digitalWrite(6,LOW);
- delay(25);
- digitalWrite(6,HIGH);
- digitalWrite(7,LOW);
- delay(25);
- digitalWrite(7,HIGH);
- digitalWrite(8,LOW);
- delay(25);
- digitalWrite(8,HIGH);
- delay(25);
- digitalWrite(9,LOW);
- delay(25);
- digitalWrite(9,HIGH);
- Serial.println("Relay speed test complete.");
-                 }
+    digitalWrite(6,HIGH);                         // Relay exercise routine
+    digitalWrite(7,HIGH);
+    digitalWrite(8,HIGH);
+    digitalWrite(9,HIGH);
+    Serial.println("Relays 0..3 activated");
+    delay(2000);
+    digitalWrite(6,LOW);
+    digitalWrite(7,LOW);
+    digitalWrite(8,LOW);
+    digitalWrite(9,LOW);
+    Serial.println("Relays 0..3 activated");
+    delay(2000);
+    digitalWrite(6,LOW);
+    delay(25);
+    digitalWrite(6,HIGH);
+    digitalWrite(7,LOW);
+    delay(25);
+    digitalWrite(7,HIGH);
+    digitalWrite(8,LOW);
+    delay(25);
+    digitalWrite(8,HIGH);
+    delay(25);
+    digitalWrite(9,LOW);
+    delay(25);
+    digitalWrite(9,HIGH);
+    Serial.println("Relay speed test complete.");
+  }
 }
 
 void clearUsers()    //Erases all users from EEPROM
 {
   for(int i=EEPROM_FIRSTUSER; i<=EEPROM_LASTUSER; i++){
-  EEPROM.write(i,0);  
-  logDate();
-  Serial.println("User database erased.");  
-                                                      }
+    EEPROM.write(i,0);  
+    logDate();
+    Serial.println("User database erased.");  
+  }
 }
 
 void insertUser(int userNum, byte userMask, unsigned long tagNumber)    // Inserts a new users into the local database.
 {                                                                       // Users number 0..NUMUSERS
- int offset = (EEPROM_FIRSTUSER+(userNum*5));                           // Find the offset to write this user to
- byte EEPROM_buffer[] ={0,0,0,0,0};                                     // Buffer for creating the 4 byte values to write. Usermask is store in byte 5.
+  int offset = (EEPROM_FIRSTUSER+(userNum*5));                           // Find the offset to write this user to
+  byte EEPROM_buffer[] ={
+    0,0,0,0,0  };                                     // Buffer for creating the 4 byte values to write. Usermask is store in byte 5.
 
-logDate();
+  logDate();
 
   if((userNum <0) || (userNum > NUMUSERS)) {                            // Do not write to invalid EEPROM addresses.
 
-   Serial.print("Invalid user insert attempted.");
-                                           }
- else
+    Serial.print("Invalid user insert attempted.");
+  }
+  else
   {
- 
-   
-  
 
-     EEPROM_buffer[0] = byte(tagNumber &  0xFFF);   // Fill the buffer with the values to write to bytes 0..4 
-     EEPROM_buffer[1] = byte(tagNumber >> 8);
-     EEPROM_buffer[2] = byte(tagNumber >> 16);
-     EEPROM_buffer[3] = byte(tagNumber >> 24);
-     EEPROM_buffer[4] = byte(userMask);
-  
-  
-                      
+
+
+
+    EEPROM_buffer[0] = byte(tagNumber &  0xFFF);   // Fill the buffer with the values to write to bytes 0..4 
+    EEPROM_buffer[1] = byte(tagNumber >> 8);
+    EEPROM_buffer[2] = byte(tagNumber >> 16);
+    EEPROM_buffer[3] = byte(tagNumber >> 24);
+    EEPROM_buffer[4] = byte(userMask);
+
+
+
     for(int i=0; i<5; i++){
-    EEPROM.write((offset+i), (EEPROM_buffer[i])); // Store the resulting value in 5 bytes of EEPROM.
-                                                  // Starting at offset.
+      EEPROM.write((offset+i), (EEPROM_buffer[i])); // Store the resulting value in 5 bytes of EEPROM.
+      // Starting at offset.
 
- // Serial.print("Byte: ");Serial.print(i);Serial.print(" ");Serial.print("Data: ");Serial.println(EEPROM_buffer[i],HEX);
- // Serial.print(" ");Serial.print("EEPROM ADDRESS: ");Serial.println(offset+i,DEC);
+      // Serial.print("Byte: ");Serial.print(i);Serial.print(" ");Serial.print("Data: ");Serial.println(EEPROM_buffer[i],HEX);
+      // Serial.print(" ");Serial.print("EEPROM ADDRESS: ");Serial.println(offset+i,DEC);
 
     }
-                        
-  Serial.print("User ");Serial.print(tagNumber,HEX); Serial.print(" with usermask ");Serial.print(userMask,DEC); 
-  Serial.print(" added at position "); Serial.println(userNum,DEC);
-  
-   }
+
+    Serial.print("User ");
+    Serial.print(tagNumber,HEX); 
+    Serial.print(" with usermask ");
+    Serial.print(userMask,DEC); 
+    Serial.print(" added at position "); 
+    Serial.println(userNum,DEC);
+
+  }
 }
 
 void deleteUser(int userNum)     // Deletes a user from the local database.
 {                                                                       // Users number 0..NUMUSERS
- int offset = (EEPROM_FIRSTUSER+(userNum*5));                           // Find the offset to write this user to
- byte EEPROM_buffer[] ={0,0,0,0,0};                                     // Buffer for creating the 4 byte values to write. Usermask is store in byte 5.
+  int offset = (EEPROM_FIRSTUSER+(userNum*5));                           // Find the offset to write this user to
+  byte EEPROM_buffer[] ={
+    0,0,0,0,0  };                                     // Buffer for creating the 4 byte values to write. Usermask is store in byte 5.
 
-logDate();
+  logDate();
 
   if((userNum <0) || (userNum > NUMUSERS)) {                            // Do not write to invalid EEPROM addresses.
 
-   Serial.print("Invalid user delete attempted.");
-                                           }
- else
+    Serial.print("Invalid user delete attempted.");
+  }
+  else
   {
- 
-     
-                      
+
+
+
     for(int i=0; i<5; i++){
-    EEPROM.write((offset+i), (EEPROM_buffer[i])); // Store the resulting value in 5 bytes of EEPROM.
-                                                  // Starting at offset.
+      EEPROM.write((offset+i), (EEPROM_buffer[i])); // Store the resulting value in 5 bytes of EEPROM.
+      // Starting at offset.
 
 
 
     }
-                        
-  Serial.print("User deleted at position "); Serial.println(userNum);
-  
+
+    Serial.print("User deleted at position "); 
+    Serial.println(userNum);
+
   }
 
 }
@@ -814,65 +859,77 @@ logDate();
 
 int checkUser(unsigned long tagNumber)                                  // Check if a particular tag exists in the local database. Returns userMask if found.
 {                                                                       // Users number 0..NUMUSERS
-                                                                        // Find the first offset to check
+  // Find the first offset to check
 
- unsigned long EEPROM_buffer=0;                                         // Buffer for recreating tagNumber from the 4 stored bytes.
+  unsigned long EEPROM_buffer=0;                                         // Buffer for recreating tagNumber from the 4 stored bytes.
 
-logDate();
-Serial.print("Tag lookup started for:");Serial.println(tagNumber,HEX);
+  logDate();
+  Serial.print("Tag lookup started for:");
+  Serial.println(tagNumber,HEX);
 
-for(int i=EEPROM_FIRSTUSER; i<=(EEPROM_LASTUSER-5); i=i+5){
+  for(int i=EEPROM_FIRSTUSER; i<=(EEPROM_LASTUSER-5); i=i+5){
 
 
-EEPROM_buffer=0;
-EEPROM_buffer=(EEPROM.read(i+3));
-EEPROM_buffer= EEPROM_buffer<<8;
-EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i+2));
-EEPROM_buffer= EEPROM_buffer<<8;
-EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i+1));
-EEPROM_buffer= EEPROM_buffer<<8;
-EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i));
+    EEPROM_buffer=0;
+    EEPROM_buffer=(EEPROM.read(i+3));
+    EEPROM_buffer= EEPROM_buffer<<8;
+    EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i+2));
+    EEPROM_buffer= EEPROM_buffer<<8;
+    EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i+1));
+    EEPROM_buffer= EEPROM_buffer<<8;
+    EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i));
 
-//Serial.print("UserNum:");Serial.print(((i-EEPROM_FIRSTUSER)/5),DEC);
-//Serial.print("TagNum:");Serial.print(EEPROM_buffer,HEX);
-//Serial.print("Usermask:");Serial.println(EEPROM.read(i+4));
+    //Serial.print("UserNum:");Serial.print(((i-EEPROM_FIRSTUSER)/5),DEC);
+    //Serial.print("TagNum:");Serial.print(EEPROM_buffer,HEX);
+    //Serial.print("Usermask:");Serial.println(EEPROM.read(i+4));
 
-if(EEPROM_buffer == tagNumber) {
-Serial.print("User located at position ");Serial.println(((i-EEPROM_FIRSTUSER)/5),DEC);
-return(EEPROM.read(i+4));
+    if(EEPROM_buffer == tagNumber) {
+      logDate();
+      Serial.print("User located at position ");
+      Serial.println(((i-EEPROM_FIRSTUSER)/5),DEC);
+      return(EEPROM.read(i+4));
 
-                               }                             
+    }                             
 
-                                                           }
-Serial.println("User not found");
-return(-255);                        
+  }
+  Serial.println("User not found");
+  return(-255);                        
 }
 
 
 void dumpUsers()                                                        // Displays a lsit of all users in internal DB
 {                                                                       // Users number 0..NUMUSERS
-                                                                        
-
- unsigned long EEPROM_buffer=0;                                         // Buffer for recreating tagNumber from the 4 stored bytes.
-
-logDate();
-Serial.println("User dump started.");
-
-for(int i=EEPROM_FIRSTUSER; i<=(EEPROM_LASTUSER-5); i=i+5){
 
 
-EEPROM_buffer=0;
-EEPROM_buffer=(EEPROM.read(i+3));
-EEPROM_buffer= EEPROM_buffer<<8;
-EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i+2));
-EEPROM_buffer= EEPROM_buffer<<8;
-EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i+1));
-EEPROM_buffer= EEPROM_buffer<<8;
-EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i));
+  unsigned long EEPROM_buffer=0;                                         // Buffer for recreating tagNumber from the 4 stored bytes.
 
-Serial.print("UserNum:");Serial.print(((i-EEPROM_FIRSTUSER)/5),DEC);
-Serial.print("TagNum:");Serial.print(EEPROM_buffer,HEX);
-Serial.print("Usermask:");Serial.println(EEPROM.read(i+4));
+  logDate();
+  Serial.println("User dump started.");
 
-                                                           }
+  Serial.print("UserNum:");
+  Serial.print("\t");
+  Serial.print("TagNum:");
+  Serial.println("Usermask:");
+  for(int i=EEPROM_FIRSTUSER; i<=(EEPROM_LASTUSER-5); i=i+5){
+
+
+    EEPROM_buffer=0;
+    EEPROM_buffer=(EEPROM.read(i+3));
+    EEPROM_buffer= EEPROM_buffer<<8;
+    EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i+2));
+    EEPROM_buffer= EEPROM_buffer<<8;
+    EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i+1));
+    EEPROM_buffer= EEPROM_buffer<<8;
+    EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i));
+
+
+
+    Serial.print(((i-EEPROM_FIRSTUSER)/5),DEC);
+    Serial.print("\t");
+    Serial.print(EEPROM_buffer,HEX);
+    Serial.print("\t");
+    Serial.println(EEPROM.read(i+4),DEC);
+
+  }
 }
+
