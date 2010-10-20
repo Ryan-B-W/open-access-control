@@ -1,7 +1,7 @@
 /*
  * Open Source RFID Access Controller
  *
- * 10/5/2010 v1.17
+ * 10/5/2010 v1.19
  * Arclight - arclight@23.org
  * Danozano - danozano@gmail.com
  *
@@ -57,7 +57,7 @@
 #define arclight   0x14B949D    
 #define kallahar   0x2B46B62
 #define danozano   0x3909D3
-#define flea       55555
+#define flea       0x5555555
 
 long  superUserList[] = {arclight,danozano,kallahar,queeg,flea};  //User access table (Move to flash later)
 
@@ -72,7 +72,8 @@ long  superUserList[] = {arclight,danozano,kallahar,queeg,flea};  //User access 
 
 #define EEPROM_FIRSTUSER 24
 #define EEPROM_LASTUSER 1024
-#define NUMUSERS  ((EEPROM_LASTUSER - EEPROM_FIRSTUSER)/4)  //Define number of internal users (250 for UNO/Duemillanova)
+#define NUMUSERS  ((EEPROM_LASTUSER - EEPROM_FIRSTUSER)/5)  //Define number of internal users (200 for UNO/Duemillanova)
+//#define NUMUSERS 200
 
 #define DOORPIN1 relayPins[2]           // Define door 1 pin
 #define DOORPIN2 relayPins[2]           // Define door 2 pin
@@ -164,9 +165,12 @@ Wire.begin();   // start Wire library as I2C-Bus Master
 //hardwareTest(100);      // IO Pin testing routing (use to check your inputs with hi/lo +(5-12V) sources)
                            // Also checks relay outputs.
 
+//insertUser(0, 64, 0x14B2164);
+//insertUser(199, 64, 0x14B949D); 
+dumpUsers();
+
+
 }
-
-
 void loop()                                     // Main branch, runs over and over again
 {                         
 
@@ -232,11 +236,12 @@ void loop()                                     // Main branch, runs over and ov
 */
 
 
-  if(reader1Count >= 26){                            //  tag presented to reader1
-    logTagPresent(reader1,1);                        //  write log entry to serial port
-                                                     //  CHECK TAG IN OUR LIST OF USERS. -255 = no match
-    if(checkAccess(reader1) == 1) {                  //  if > 0 there is a match. checkAccess (reader1) is the userList () index 
-      logAccessGranted(reader1, 1);                  //  log and unlock door 1
+  if(reader1Count >= 26){                                //  tag presented to reader1
+    logTagPresent(reader1,1);                            //  write log entry to serial port
+                                                         //  CHECK TAG IN OUR LIST OF USERS. -255 = no match
+    if((checkSuperuser(reader1) > 0) ||checkUser(reader1) >0)
+    {                                                    //  if > 0 there is a match. checkSuperuser (reader1) is the userList () index 
+      logAccessGranted(reader1, 1);                      //  log and unlock door 1
 
         if(alarmArmed !=0){ 
         alarmArmed =0;
@@ -274,7 +279,7 @@ void loop()                                     // Main branch, runs over and ov
       }
 
     }
-    else if(checkAccess(reader1) !=1) {           // If no user match, log entry written
+    else if(checkSuperuser(reader1) !=1) {           // If no user match, log entry written
       logAccessDenied(reader1,1);                 // no tickee, no laundree
     }
                                                            
@@ -291,7 +296,7 @@ void loop()                                     // Main branch, runs over and ov
   if(reader2Count >= 26){                           //  tag presented to reader2 (No keypad on this reader)
     logTagPresent(reader2,2);                       //  write log entry to serial port
 
-    if(checkAccess(reader2) == 1) {                // If > 0 there is a match. 
+    if((checkSuperuser(reader2) > 0) ||checkUser(reader2) >0) {                // If > 0 there is a match. 
       logAccessGranted(reader2, 2);                // Log and unlock door 2
       //  CHECK TAG IN OUR LIST OF USERS. -255 = no match
       if(alarmStatus !=0){
@@ -303,7 +308,7 @@ void loop()                                     // Main branch, runs over and ov
 
 
     }
-    else if(checkAccess(reader2) !=1) {           //  no match, log entry written
+    else if(checkSuperuser(reader2) !=1) {           //  no match, log entry written
       logAccessDenied(reader2,2);                 //  no tickee, no laundree
     }
   
@@ -486,7 +491,7 @@ void armAlarm(byte level){                       //Arm the alarm and set to leve
  These function control lock/unlock and user lookup.
  */
 
-int checkAccess(long input){       //Check to see if user is in the user list. If yes, return their index value.
+int checkSuperuser(long input){       //Check to see if user is in the user list. If yes, return their index value.
   for(int i=0; i<=numUsers; i++){   
     if(input == superUserList[i]){
       return(1);
@@ -735,43 +740,139 @@ void clearUsers()    //Erases all users from EEPROM
                                                       }
 }
 
-void insertUser(int userNum, byte userMask, unsigned long tagnumber)    // Inserts a new users into the local database.
-{                                                              // Users number 0..NUMUSERS
- int offset = (EEPROM_FIRSTUSER+(userNum*4)); //Find the offset to write this user to
-byte EEPROM_buffer[] ={0,0,0,0};
+void insertUser(int userNum, byte userMask, unsigned long tagNumber)    // Inserts a new users into the local database.
+{                                                                       // Users number 0..NUMUSERS
+ int offset = (EEPROM_FIRSTUSER+(userNum*5));                           // Find the offset to write this user to
+ byte EEPROM_buffer[] ={0,0,0,0,0};                                     // Buffer for creating the 4 byte values to write. Usermask is store in byte 5.
 
-  if((userNum <0) || (userNum > NUMUSERS)) {     //Do not write to invalid addresses.
-   logDate(); 
+logDate();
+
+  if((userNum <0) || (userNum > NUMUSERS)) {                            // Do not write to invalid EEPROM addresses.
+
    Serial.print("Invalid user insert attempted.");
                                            }
  else
   {
  
-
+   
   
-                           
-     EEPROM_buffer[0] = tagnumber &  0xFF;
-     EEPROM_buffer[1] = tagnumber >> 8;
-     EEPROM_buffer[2] = tagnumber >> 16;
-     EEPROM_buffer[3] = tagnumber >> 24;
-     userMask = userMask & 64;                          //Access the last 6-bits of userMask
 
-    for(int i=0; i<6; i++){
-      bitWrite(EEPROM_buffer[2],(3+i),bitRead((userMask &64),i));  
-                      }
+     EEPROM_buffer[0] = byte(tagNumber &  0xFFF);   // Fill the buffer with the values to write to bytes 0..4 
+     EEPROM_buffer[1] = byte(tagNumber >> 8);
+     EEPROM_buffer[2] = byte(tagNumber >> 16);
+     EEPROM_buffer[3] = byte(tagNumber >> 24);
+     EEPROM_buffer[4] = byte(userMask);
+  
+  
                       
-    for(int i=0; i<4; i++){
-      EEPROM.write((offset+i), (EEPROM_buffer[i])); // Store the resulting value in 4 bytes of EEPROM.
-                      }                          // Starting at offset.
-          
-               
+    for(int i=0; i<5; i++){
+    EEPROM.write((offset+i), (EEPROM_buffer[i])); // Store the resulting value in 5 bytes of EEPROM.
+                                                  // Starting at offset.
+
+ // Serial.print("Byte: ");Serial.print(i);Serial.print(" ");Serial.print("Data: ");Serial.println(EEPROM_buffer[i],HEX);
+ // Serial.print(" ");Serial.print("EEPROM ADDRESS: ");Serial.println(offset+i,DEC);
+
+    }
                         
-  logDate();
-  Serial.print("User ");
-  Serial.print(userNum);
-  Serial.println("updated.");
+  Serial.print("User ");Serial.print(tagNumber,HEX); Serial.print(" with usermask ");Serial.print(userMask,DEC); 
+  Serial.print(" added at position "); Serial.println(userNum,DEC);
   
    }
 }
 
+void deleteUser(int userNum)     // Deletes a user from the local database.
+{                                                                       // Users number 0..NUMUSERS
+ int offset = (EEPROM_FIRSTUSER+(userNum*5));                           // Find the offset to write this user to
+ byte EEPROM_buffer[] ={0,0,0,0,0};                                     // Buffer for creating the 4 byte values to write. Usermask is store in byte 5.
 
+logDate();
+
+  if((userNum <0) || (userNum > NUMUSERS)) {                            // Do not write to invalid EEPROM addresses.
+
+   Serial.print("Invalid user delete attempted.");
+                                           }
+ else
+  {
+ 
+     
+                      
+    for(int i=0; i<5; i++){
+    EEPROM.write((offset+i), (EEPROM_buffer[i])); // Store the resulting value in 5 bytes of EEPROM.
+                                                  // Starting at offset.
+
+
+
+    }
+                        
+  Serial.print("User deleted at position "); Serial.println(userNum);
+  
+  }
+
+}
+
+
+
+int checkUser(unsigned long tagNumber)                                  // Check if a particular tag exists in the local database. Returns userMask if found.
+{                                                                       // Users number 0..NUMUSERS
+                                                                        // Find the first offset to check
+
+ unsigned long EEPROM_buffer=0;                                         // Buffer for recreating tagNumber from the 4 stored bytes.
+
+logDate();
+Serial.print("Tag lookup started for:");Serial.println(tagNumber,HEX);
+
+for(int i=EEPROM_FIRSTUSER; i<=(EEPROM_LASTUSER-5); i=i+5){
+
+
+EEPROM_buffer=0;
+EEPROM_buffer=(EEPROM.read(i+3));
+EEPROM_buffer= EEPROM_buffer<<8;
+EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i+2));
+EEPROM_buffer= EEPROM_buffer<<8;
+EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i+1));
+EEPROM_buffer= EEPROM_buffer<<8;
+EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i));
+
+//Serial.print("UserNum:");Serial.print(((i-EEPROM_FIRSTUSER)/5),DEC);
+//Serial.print("TagNum:");Serial.print(EEPROM_buffer,HEX);
+//Serial.print("Usermask:");Serial.println(EEPROM.read(i+4));
+
+if(EEPROM_buffer == tagNumber) {
+Serial.print("User located at position ");Serial.println(((i-EEPROM_FIRSTUSER)/5),DEC);
+return(EEPROM.read(i+4));
+
+                               }                             
+
+                                                           }
+Serial.println("User not found");
+return(-255);                        
+}
+
+
+void dumpUsers()                                                        // Displays a lsit of all users in internal DB
+{                                                                       // Users number 0..NUMUSERS
+                                                                        
+
+ unsigned long EEPROM_buffer=0;                                         // Buffer for recreating tagNumber from the 4 stored bytes.
+
+logDate();
+Serial.println("User dump started.");
+
+for(int i=EEPROM_FIRSTUSER; i<=(EEPROM_LASTUSER-5); i=i+5){
+
+
+EEPROM_buffer=0;
+EEPROM_buffer=(EEPROM.read(i+3));
+EEPROM_buffer= EEPROM_buffer<<8;
+EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i+2));
+EEPROM_buffer= EEPROM_buffer<<8;
+EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i+1));
+EEPROM_buffer= EEPROM_buffer<<8;
+EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i));
+
+Serial.print("UserNum:");Serial.print(((i-EEPROM_FIRSTUSER)/5),DEC);
+Serial.print("TagNum:");Serial.print(EEPROM_buffer,HEX);
+Serial.print("Usermask:");Serial.println(EEPROM.read(i+4));
+
+                                                           }
+}
