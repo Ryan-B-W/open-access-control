@@ -31,9 +31,7 @@
  * Reader 2: pins 4,5
  * Ethernet: pins 10,11,12,13 (Not connected to the board, reserved for the Ethernet shield)
  *
- */
-
-/* Header files - stuff we're including
+ *
  */
 
 #include <Wire.h>         // Needed for I2C Connection to the DS1307 date/time chip
@@ -53,7 +51,7 @@
  */
 
 #define queeg      111111       // Name and badge number in HEX. We are not using checksums or site ID, just the whole
-// output string from the reader.
+                                // output string from the reader.
 #define arclight   0x14B949D    
 #define kallahar   0x2B46B62
 #define danozano   0x3909D3
@@ -792,11 +790,11 @@ void clearUsers()    //Erases all users from EEPROM
   }
 }
 
-void insertUser(int userNum, byte userMask, unsigned long tagNumber)    // Inserts a new users into the local database.
+void addUser(int userNum, byte userMask, unsigned long tagNumber)       // Inserts a new users into the local database.
 {                                                                       // Users number 0..NUMUSERS
   int offset = (EEPROM_FIRSTUSER+(userNum*5));                           // Find the offset to write this user to
   byte EEPROM_buffer[] ={
-    0,0,0,0,0  };                                     // Buffer for creating the 4 byte values to write. Usermask is store in byte 5.
+    0,0,0,0,0  };                                                       // Buffer for creating the 4 byte values to write. Usermask is store in byte 5.
 
   logDate();
 
@@ -839,9 +837,8 @@ void insertUser(int userNum, byte userMask, unsigned long tagNumber)    // Inser
 
 void deleteUser(int userNum)     // Deletes a user from the local database.
 {                                                                       // Users number 0..NUMUSERS
-  int offset = (EEPROM_FIRSTUSER+(userNum*5));                           // Find the offset to write this user to
-  byte EEPROM_buffer[] ={
-    0,0,0,0,0  };                                     // Buffer for creating the 4 byte values to write. Usermask is store in byte 5.
+  int offset = (EEPROM_FIRSTUSER+(userNum*5));                          // Find the offset to write this user to
+  byte EEPROM_buffer[] ={0xFF,0xFF,0xFF,0xFF,0xFF  };                   // Buffer for creating the 4 byte values to write. Usermask is store in byte 5.
 
   logDate();
 
@@ -1010,13 +1007,13 @@ char   inString[17];
                    break;  
                             }
                   case 'l': {
-                   armAlarm(4);                                            // Lock all doors
+                   armAlarm(4);                                             // Lock all doors
                    door1Locked==true;
                    door2Locked==true;
                    chirpAlarm(1,ALARMSIRENPIN);   
                    break;  
                             }                            
-                   case '3': {                                                   // Train alarm sensors
+                   case '3': {                                            // Train alarm sensors
                    trainAlarm();
                    break;
                              }
@@ -1032,12 +1029,17 @@ char   inString[17];
                      else Serial.print("Invalid door number!");
                             } 
                    case 'r': {                                                 // Remove a user
-                   deleteUser(atoi(inString));
+                    deleteUser(atoi(inString));
                     break; 
-                            }              
+                             }              
+
+                   case 'a': {                                                 // Add/change a user                   
+                    //addUser(int userNum, byte userMask, unsigned long tagNumber)
+                             }
+                             
                   case '?': {                                                  // Display help menu
                    Serial.println("Valid commands are:");
-                   Serial.println("(d)ate, (s)show users, (a)dd user, (r)emove_user <num>,(o)open door <num>");  
+                   Serial.println("(d)ate, (s)show users, (a)dd/modify user, (r)emove_user <num>,(o)open door <num>");  
                    Serial.println("(u)nlock all doors,(l)lock all doors");
                    Serial.println("(1)disarm_alarm, (2)arm_alarm,(3)train_alarm ");
                    
