@@ -186,9 +186,7 @@ readCommand(); //Check for user commands
     doorLock(DOORPIN1);
     door1locktimer=0;
                           }
-    else  {
-      doorUnlock(DOORPIN1);    
-          }
+
   }
 
   if(((millis() - door2locktimer) >= DOORDELAY) && door2locktimer !=0)
@@ -197,10 +195,15 @@ readCommand(); //Check for user commands
      doorLock(DOORPIN2); 
      door2locktimer=0;
                            }
-    else {
-      doorUnlock(DOORPIN1); 
-         }   
+   
   }   
+
+ if(door1Locked==false) {       // Unlock doors if door supposed to be unlocked.
+      doorUnlock(DOORPIN1); 
+                       }
+ if(door2Locked==false) {
+      doorUnlock(DOORPIN1); 
+                        }             
 
   /* Check physical sensors with 
    the logic below. Behavior is based on
@@ -236,10 +239,11 @@ readCommand(); //Check for user commands
 
   case 4: 
     {                 //Door chime mode
-      digitalWrite(DOORPIN1, HIGH);    //Leave door unlocked.
-      if(pollAlarm(0) !=0) {
+      
+      if(pollAlarm(3) !=0) {
         chirpAlarm(3,ALARMSIRENPIN);
         break;  
+        
       }
     }
 
@@ -553,13 +557,15 @@ void doorLock(int input) {          //Send an unlock signal to the door and flas
   Serial.print("Door ");
   Serial.print(input,DEC);
   Serial.println(" locked");
-  digitalWrite(input,LOW );
+  
 
 }
 void lockall() {                      //Lock down all doors. Can also be run periodically to safeguard system.
 
   digitalWrite(DOORPIN1, LOW);
   digitalWrite(DOORPIN2,LOW);
+  door1Locked==true;
+  door2Locked==true;
   Serial.print("All Doors ");
   Serial.println(" relocked");
 }
@@ -952,15 +958,19 @@ char   commandVal=0;
 byte   inCount = 0;
 char   inString[17];
 
+//{0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+ //                  0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
+
 
 	
 	if (Serial.available() > 0) {                                       // Check if user entered a command this round
-  		// read the incoming byte:                                   
+  	                                  
                   inCount=0;
               do {
                  
                    inString[inCount] = Serial.read();                       // Read in serial bytes until a <CR> is pressed 
                    if (inString[inCount] == 13) break;
+                  Serial.println();
                  }
                while(++inCount < (stringSize-1));                            // or until max size reached (stringSize-1)
 
@@ -974,8 +984,9 @@ char   inString[17];
                     }
                                                         
                     Serial.print("Command entered: ");                       // Echo the command entered
-                    Serial.println(atoi(inString));                                                    
-
+                    Serial.println(commandVal);                                                    
+                    Serial.print("Parameter entered: ");                       // Echo the command entered
+                    Serial.println(inString);                                                    
                                        
                switch(commandVal) {
 
@@ -1000,16 +1011,19 @@ char   inString[17];
                    break; 
                             } 
                   case 'u': {
-                   armAlarm(4);                                            // Set to door chime only/open doors
+                   alarmState(0); 
+                                                                           // Set to door chime only/open doors
+                   armAlarm(4);
                    door1Locked==false;
                    door2Locked==false;
+                   doorUnlock(DOORPIN1);
+                   doorUnlock(DOORPIN2);
                    chirpAlarm(3,ALARMSIRENPIN);   
                    break;  
                             }
                   case 'l': {
-                   armAlarm(4);                                             // Lock all doors
-                   door1Locked==true;
-                   door2Locked==true;
+                                                                           // Lock all doors
+                   lockall();
                    chirpAlarm(1,ALARMSIRENPIN);   
                    break;  
                             }                            
@@ -1022,12 +1036,14 @@ char   inString[17];
                     doorUnlock(DOORPIN1);                                  // Open the door specified
                     door1locktimer=millis();
                                           }                    
-                   else if(atoi(inString) == 2){  
-                    doorUnlock(DOORPIN2);                                        
-                    door1locktimer=millis();               
-                                               }
+                    if(atoi(inString) == 2){  
+                     doorUnlock(DOORPIN2);                                        
+                     door1locktimer=millis();               
+                                            }
                      else Serial.print("Invalid door number!");
+                     break;
                             } 
+
                    case 'r': {                                                 // Remove a user
                     deleteUser(atoi(inString));
                     break; 
@@ -1035,6 +1051,7 @@ char   inString[17];
 
                    case 'a': {                                                 // Add/change a user                   
                     //addUser(int userNum, byte userMask, unsigned long tagNumber)
+                    break;
                              }
                              
                   case '?': {                                                  // Display help menu
