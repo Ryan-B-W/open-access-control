@@ -1,7 +1,7 @@
 /*
  * Open Source RFID Access Controller
  *
- * 2/12/2011 v1.22
+ * 2/13/2011 v1.23
  * Arclight - arclight@23.org
  * Danozano - danozano@gmail.com
  *
@@ -92,17 +92,19 @@ bool door2Locked=true;
 long door1locktimer=0;                        //Keep track of when door is supposed to be relocked
 long door2locktimer=0;
 
+long chimeDelay=0;                            // Keep track of when door chime last activated
+long alarmDelay=0;                             // Keep track of alarm delay action
+
 #define numUsers (sizeof(superUserList)/sizeof(long))                  //User access array size (used in later loops/etc)
 #define NUMDOORS (sizeof(doorPin)/sizeof(byte))
 #define numAlarmPins (sizeof(analogsensorPins)/sizeof(byte))
 
 //Other global variables
-
 byte second, minute, hour, dayOfWeek, dayOfMonth, month, year;  // RTC clock variables
 
-byte alarmStatus = EEPROM.read(EEPROM_ALARM);                   // Read the last alarm state as saved in eeprom.
-byte alarmArmed = EEPROM.read(EEPROM_ALARMARMED);               // Alarm level variable (0..5, 0==OFF) 
-
+byte alarmActivated = EEPROM.read(EEPROM_ALARM);                   // Read the last alarm state as saved in eeprom.
+byte alarmArmed = EEPROM.read(EEPROM_ALARMARMED);                  // Alarm level variable (0..5, 0==OFF) 
+boolean sensor[4]={false};                                             // Keep track of tripped sensors, do not log again until reset.
 
 // Enable up to 3 door access readers.
 volatile long reader1 = 0;
@@ -148,7 +150,7 @@ void setup(){           // Runs once at Arduino boot-up
   }
 
 
-  //ds1307.setDateDs1307(0,18,22,2,12,10,10);         
+ //ds1307.setDateDs1307(0,18,22,2,12,10,10);         
   /*  Sets the date/time (needed once at commissioning)
    
    byte second,        // 0-59
@@ -174,7 +176,7 @@ void setup(){           // Runs once at Arduino boot-up
 void loop()                                     // Main branch, runs over and over again
 {                         
 
-readCommand(); //Check for user commands
+readCommand();                                 //Check for user serial commands
   
   /* Check if doors are supposed to be locked and lock/unlock them 
    * if needed.
@@ -223,28 +225,54 @@ readCommand(); //Check for user commands
     {
       break;                                        // Alarm is not armed, do nothing.  
     }
-  case 1: 
-    {                                               // Alarm is armed, check sensor zones.
-      if(alarmStatus==0){ 
-        for(byte i=0; i<numAlarmPins; i++) {
-          if(pollAlarm(i) ==1 ){
-            alarmState(1);                        // If zone is tripped, immediately set AlarmStatus to 1 (alarm immediate).
-            // Only do this once if alarm activated.
-          }
-        }
-      } 
 
+  case 1: 
+  {
+
+    if((millis()-alarmDelay >=60000) && sensor[1] == true)
+     {
+      alarmState(1);                           // If alarm delay is up, turn on alarm.
+
+      }                             
+                                   
+    
+    
+                                                    // Alarm is armed, check sensor zones.
+      if(alarmActivated==0){ 
+          if(pollAlarm(0) == 1 ){                  // If this zone is tripped, immediately set Alarm State to 1 (alarm immediate).
+            sensor[0]=true;     }
+            alarmState(1);                        
+                             }       
+          if(pollAlarm(1) == 1 ){                  // If this zone is tripped, immediately set Alarm State to 2 (alarm delay).
+                                                   // Also starts the delay timer
+            alarmState(2);
+            sensor[1]=true;
+      
+                                
+                                          
+                                } 
+                                                   
+                                                 
+      if(alarmActivated==0){ 
+          if(pollAlarm(2) == 1 ){                  // If this zone is tripped, immediately set Alarm State to 1 (alarm immediate).
+            sensor[2]=true;
+            alarmState(1);      }                  
+                           }                                  
+      if(alarmActivated==0){ 
+          if(pollAlarm(3) == 1 ){                  // If this zone is tripped, log the action only
+            sensor[3]=true;     }                                                           
+                           }
       break;  
     } 
 
   case 4: 
     {                 //Door chime mode
       
-      if(pollAlarm(3) !=0) {
-        chirpAlarm(3,ALARMSIRENPIN);
-        break;  
-        
-      }
+      if(pollAlarm(1) !=0 && millis()-chimeDelay >=10000) {   // Only activate door chime every 10sec or less
+        chirpAlarm(3,ALARMSIRENPIN);                  
+        chimeDelay = millis();                         }
+        break;    
+      
     }
 
   default: 
@@ -321,10 +349,6 @@ readCommand(); //Check for user commands
 
 
 
-
-
-
-
   if(reader2Count >= 26){                           //  tag presented to reader2 (No keypad on this reader)
     logTagPresent(reader2,2);                       //  write log entry to serial port
 
@@ -333,7 +357,7 @@ readCommand(); //Check for user commands
  
 
       //  CHECK TAG IN OUR LIST OF USERS. -255 = no match
-      if(alarmStatus !=0){
+      if(alarmActivated !=0){
 
       
       alarmState(0);                            //  Deactivate Alarm
@@ -351,9 +375,7 @@ readCommand(); //Check for user commands
   }
 
 
-
-}
-
+  } // End of loop()
 
 void runCommand(long command) {         // Run any commands entered at the pin pad.
 
@@ -386,16 +408,14 @@ void runCommand(long command) {         // Run any commands entered at the pin p
     }
   case 0x4:
     {
-      trainAlarm();                // Train the alarm sensors. Sets the default level (0..1024) for sensors in 
-      // non-activated state to be in.
       chirpAlarm(4,ALARMSIRENPIN);
       break;
     }
 
   case 0x911: 
     {
-      chirpAlarm(9,ALARMSIRENPIN);
-      armAlarm(1);                   // Emergency
+      chirpAlarm(9,ALARMSIRENPIN);          // Emergency
+      armAlarm(1);                   
       alarmState(1);
       break;  
     }
@@ -414,7 +434,7 @@ void runCommand(long command) {         // Run any commands entered at the pin p
  resistors can be used to check more zones from the analog pins.
  */
 
-byte alarmState(byte alarmLevel) {        //Changes the alarm status
+void alarmState(byte alarmLevel) {                 //Changes the alarm status
 
 
   logalarmState(alarmLevel); 
@@ -423,21 +443,23 @@ byte alarmState(byte alarmLevel) {        //Changes the alarm status
     {                                              // If alarmLevel == 0 turn off alarm.   
       digitalWrite(ALARMSIRENPIN, LOW);
       digitalWrite(ALARMSTROBEPIN, LOW);
-      alarmStatus = alarmLevel;                    //Set global alarm level variable
+      alarmActivated = alarmLevel;                    //Set global alarm level variable
       break;  
     }        
   case 1: 
-    {                                              // If alarmLevel == 1 turn on strobe lights (SENSOR TRIPPED)
-      digitalWrite(ALARMSTROBEPIN, HIGH);          //we would only activate a small LED if there was another output available. hint hint
-      alarmStatus = alarmLevel;                    //Set global alarm level variable
+    { 
+      digitalWrite(ALARMSIRENPIN, HIGH);        // If alarmLevel == 1 turn on strobe lights and siren
+      digitalWrite(ALARMSTROBEPIN, HIGH);          
+      alarmActivated = alarmLevel;                    //Set global alarm level variable
       break;  
     }        
 
-  case 2: 
+  case 2:                                        
     {
-      digitalWrite(ALARMSIRENPIN, HIGH);          // If alarmLevel == 2 turn on strobe and siren (LOUD ALARM)
-      digitalWrite(ALARMSTROBEPIN, HIGH);      
-      alarmStatus = alarmLevel;                    //Set global alarm level variable
+      if(sensor[1] == true){
+      alarmDelay=millis(); }
+      
+      alarmActivated = alarmLevel;
       break;    
     }
 
@@ -452,9 +474,9 @@ byte alarmState(byte alarmLevel) {        //Changes the alarm status
      */
 
   default: 
-    {                                            //exceptional cases kill alarm outputs
-      digitalWrite(ALARMSIRENPIN, LOW);         //      Turn off siren
-      digitalWrite(ALARMSTROBEPIN, LOW);        // and  Turn off strobe
+    {                                            //     Exceptional cases kill alarm outputs
+      digitalWrite(ALARMSIRENPIN, LOW);         //      Turn off siren and strobe
+      digitalWrite(ALARMSTROBEPIN, LOW);        
     }  
 
   }
@@ -474,8 +496,11 @@ byte pollAlarm(byte input){
 
   // Return 1 if sensor shows < pre-defined voltage.
   if(abs((analogRead(analogsensorPins[input])/4) - EEPROM.read(EEPROM_ALARMZONES+input)) >SENSORTHRESHOLD){
+
+   if(sensor[input]=true) {            // Only log and save if sensor activation is new.
     logalarmSensor(input);
     EEPROM.write(EEPROM_ALARM,input);  //Save the alarm sensor tripped to eeprom
+                        }
     return 1;
 
   }
@@ -510,6 +535,12 @@ void trainAlarm(){                       //Train the system about the default st
 void armAlarm(byte level){                       //Arm the alarm and set to level
   alarmArmed = level;
   logalarmArmed(level);
+
+  sensor[0] = false;                             // Reset the sensor tripped values
+  sensor[1] = false;
+  sensor[2] = false;
+  sensor[3] = false;
+
   if(level != EEPROM.read(EEPROM_ALARMARMED)){ 
     EEPROM.write(EEPROM_ALARMARMED,level); 
   }
@@ -951,44 +982,56 @@ void dumpUsers()                                                        // Displ
   }
 }
 
-void readCommand() {                                                        // Displays a serial terminal menu system for
-                                                                            // user management and other tasks
-#define stringSize (sizeof(inString)/sizeof(byte))
-char   commandVal=0;
-byte   inCount = 0;
-char   inString[17];
+void readCommand() {                                               // Displays a serial terminal menu system for
+                                                                   // user management and other tasks
 
-//{0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
- //                  0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
+char inString[40]={0};                                             // Size of command buffer (<=128)
+byte stringSize=(sizeof(inString)/sizeof(char));                    
+char cmdString[4][10];                                             // Size of commands (4=number of items to parse, 10 = max length of each)
+byte inCount=0;                                                    // Counters
+byte j=0;
+byte k=0;
+char cmd=0;
+
+ if (Serial.available() > 0) {                                       // Check if user entered a command this round	                                  
+   inCount=0;
+         do {                
+
+             inString[inCount] = Serial.read();                       // Read in serial bytes until a <CR> is pressed 
+             delay(10);                                              // Seems to be a bug in Serial.available() - this works 
+             if(inString[inCount]==13)
+              {
+                inString[inCount]=0;
+                break;
+              }
+            }
+          while(inCount++ < stringSize-1); // or until max size reached (stringSize-1)
+
+    inString[inCount] = 0;                                             // Null terminate the string when done 
+
+//   Serial.print("Input:");Serial.println(inString);
+
+  for(byte i=0;  i<stringSize; i++) {
+    cmdString[j][k] = inString[i];
+    if(k<9) k++;
+    else break;
+ 
+    if(inString[i] == ' ') // Check for space and if true, terminate string and move to next string.
+    {
+      cmdString[j][k-1]=0;
+      if(j<3)j++;
+      else break;
+      k=0;             
+    }
+
+  }
 
 
-	
-	if (Serial.available() > 0) {                                       // Check if user entered a command this round
-  	                                  
-                  inCount=0;
-              do {
-                 
-                   inString[inCount] = Serial.read();                       // Read in serial bytes until a <CR> is pressed 
-                   if (inString[inCount] == 13) break;
-                  Serial.println();
-                 }
-               while(++inCount < (stringSize-1));                            // or until max size reached (stringSize-1)
+  
 
-                   inString[inCount] = 0;                                    // Null terminate the string when done
-   
-   
-                   commandVal=inString[0];                                   // Remove the first character as the command
-                   for(byte i=0; i<(stringSize-1); i++) 
-                    {
-                     inString[i] =  inString[i+2];
-                    }
-                                                        
-                    Serial.print("Command entered: ");                       // Echo the command entered
-                    Serial.println(commandVal);                                                    
-                    Serial.print("Parameter entered: ");                       // Echo the command entered
-                    Serial.println(inString);                                                    
+cmd = cmdString[0][0];
                                        
-               switch(commandVal) {
+               switch(cmd) {
 
                  case 's': {                                                 // List user database
                   dumpUsers();
@@ -999,9 +1042,9 @@ char   inString[17];
                    logDate();
                    break;
                             }
-                  case '1': {                                               // Deactivate alarm
-                   alarmState(0);                                          
+                  case '1': {                                               // Deactivate alarm                                       
                    armAlarm(0);
+                   alarmState(0);
                    chirpAlarm(1,ALARMSIRENPIN);  
                    break;
                             }
@@ -1011,13 +1054,10 @@ char   inString[17];
                    break; 
                             } 
                   case 'u': {
-                   alarmState(0); 
-                                                                           // Set to door chime only/open doors
+                   alarmState(0);                                       // Set to door chime only/open doors                                                                       
                    armAlarm(4);
                    door1Locked==false;
                    door2Locked==false;
-                   doorUnlock(DOORPIN1);
-                   doorUnlock(DOORPIN2);
                    chirpAlarm(3,ALARMSIRENPIN);   
                    break;  
                             }
@@ -1045,18 +1085,18 @@ char   inString[17];
                             } 
 
                    case 'r': {                                                 // Remove a user
-                    deleteUser(atoi(inString));
+                    deleteUser(atoi(cmdString[1]));
                     break; 
                              }              
 
-                   case 'a': {                                                 // Add/change a user                   
-                    //addUser(int userNum, byte userMask, unsigned long tagNumber)
+                   case 'm': {                                                 // Add/change a user                   
+                    addUser(atoi(cmdString[1]), atoi(cmdString[2]), atol(cmdString[3]));
                     break;
                              }
                              
                   case '?': {                                                  // Display help menu
                    Serial.println("Valid commands are:");
-                   Serial.println("(d)ate, (s)show users, (a)dd/modify user, (r)emove_user <num>,(o)open door <num>");  
+                   Serial.println("(d)ate, (s)show users, (m)odify user <num> <tagnum> <usermask>, (r)emove_user <num>,(o)open door <num>");  
                    Serial.println("(u)nlock all doors,(l)lock all doors");
                    Serial.println("(1)disarm_alarm, (2)arm_alarm,(3)train_alarm ");
                    
@@ -1067,7 +1107,7 @@ char   inString[17];
                     Serial.println("Invalid command. Press '?' for help.");
                     break;
                                      }  
-                   Serial.flush();      // Flush the serial buffer when done
+                   
   }                                    // End of 'if' statement
     
 }                                      // End of function 
