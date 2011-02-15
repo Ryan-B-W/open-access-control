@@ -1,7 +1,7 @@
 /*
  * Open Source RFID Access Controller
  *
- * 2/13/2011 v1.23
+ * 2/14/2011 v1.25
  * Arclight - arclight@23.org
  * Danozano - danozano@gmail.com
  *
@@ -15,13 +15,13 @@
  * Protocol. It is recommended that the keypad inputs be
  * opto-isolated in case a malicious user shorts out the 
  * input device.
- * Outputs go to an open-collector relay driver for magnetic door hardware.
- * Analog inputs are used for alarm sensor monitoring.  These should b
+ * Outputs go to a Darlington relay driver array for door hardware/etc control.
+ * Analog inputs are used for alarm sensor monitoring.  These should be
  * isolated as well, since many sensors use +12V. Note that resistors of
  * different values can be used on each zone to detect shorting of the sensor
  * or wiring.
  *
- * Version 1.00 of the hardware implements these features and uses the following pin 
+ * Version 1.00+ of the hardware implements these features and uses the following pin 
  * assignments on a standard Arduino Duemilanova or Uno:
  *
  * Relay outpus on digital pins 6,7,8,9
@@ -183,6 +183,7 @@ void loop()                                     // Main branch, runs over and ov
 {                         
 
 readCommand();                                 //Check for user serial commands
+
   
   /* Check if doors are supposed to be locked and lock/unlock them 
    * if needed.
@@ -191,7 +192,7 @@ readCommand();                                 //Check for user serial commands
   if(((millis() - door1locktimer) >= DOORDELAY) && door1locktimer !=0)
   { 
     if(door1Locked==true){
-    doorLock(DOORPIN1);
+    doorLock(1);
     door1locktimer=0;
                           }
 
@@ -200,18 +201,19 @@ readCommand();                                 //Check for user serial commands
   if(((millis() - door2locktimer) >= DOORDELAY) && door2locktimer !=0)
   { 
     if(door2Locked==true) {
-     doorLock(DOORPIN2); 
+     doorLock(2); 
      door2locktimer=0;
                            }
    
   }   
 
  if(door1Locked==false) {       // Unlock doors if door supposed to be unlocked.
-      doorUnlock(DOORPIN1); 
-                       }
+      doorUnlock(1); 
+                        }
  if(door2Locked==false) {
-      doorUnlock(DOORPIN1); 
+      doorUnlock(1); 
                         }             
+
 
   /* Check physical sensors with 
    the logic below. Behavior is based on
@@ -228,56 +230,71 @@ readCommand();                                 //Check for user serial commands
 
   switch(alarmArmed) {
 
-    case 0:
-    {
-      break;                                        // Alarm is not armed, do nothing.  
-    }
-
-  case 1: 
+ case 0:
   {
+    break;                                        // Alarm is not armed, do nothing.  
+  }
 
-       
-                                   
-    
-    
-                                                    // Alarm is armed, check sensor zones.
-      if(alarmActivated==0){ 
-          if(pollAlarm(0) == 1 ){                  // If this zone is tripped, immediately set Alarm State to 1 (alarm immediate).
-                                }
+    case 1:                                       // Alarm is armed
+  {
+                                              
+                                                    
+      if(alarmActivated==0){                       // If alarm is armed but not currently alrming, check sensor zones.
+
+          if(pollAlarm(0) == 1 ){                  // If this zone is tripped, immediately set Alarm State to 1 (alarm immediate).                                
             alarmState(1);                        
-                             }       
-          if(pollAlarm(1) == 1 ){                  // If this zone is tripped, immediately set Alarm State to 2 (alarm delay).
-             alarmState(2);                        // Also starts the delay timer
-                                                                               
-                                } 
-                                                   
-                                                 
-      if(alarmActivated==0){ 
-          if(pollAlarm(2) == 1 ){                  // If this zone is tripped, immediately set Alarm State to 1 (alarm immediate).
-            alarmState(1);      }                  
-                           }                                  
-      if(alarmActivated==0){ 
-          if(pollAlarm(3) == 1 ){                  // If this zone is tripped, log the action only
-                                }                                                           
-                           }
-      break;  
-     
 
-                                                     // Alarm on delay.
-   if(alarmActivated==2)  {                         // If alarm delay is up, turn on alarm
-    if((millis()-alarmDelay >=60000) && sensor[1] == true)
+             if(sensor[0]==false) {            // Only log and save if sensor activation is new.
+              logalarmSensor(0);
+              EEPROM.write(EEPROM_ALARM,0);    // Save the alarm sensor tripped to eeprom                                    
+              sensor[0]=true;               // Set value to not log this again
+            }
+          }                 
+          if(pollAlarm(1) == 1 ){                   // If this zone is tripped, immediately set Alarm State to 2 (alarm delay).
+              alarmState(2);                        // Also starts the delay timer    
+              alarmDelay=millis();
+              if(sensor[1]==false) {                // Only log and save if sensor activation is new.
+               logalarmSensor(1);
+               EEPROM.write(EEPROM_ALARM,1);        // Save the alarm sensor tripped to eeprom                                      
+               sensor[1]=true;                     // Set value to not log this again                                                                        
+              }
+           }                                                                                                    
+  
+          if(pollAlarm(2) == 1 ){                  // If this zone is tripped, immediately set Alarm State to 1 (alarm immediate).
+            alarmState(1);      
+             if(sensor[2]==false) {            // Only log and save if sensor activation is new.
+              logalarmSensor(2);
+              EEPROM.write(EEPROM_ALARM,2);    // Save the alarm sensor tripped to eeprom                                     
+              sensor[2]=true;               // Set value to not log this again
+             }
+           }                              
+
+          if(pollAlarm(3) == 1 ){                  // If this zone is tripped, log the action only
+            if(sensor[3]==false) {
+             logalarmSensor(3);   
+                                                                               
+            sensor[3]=true;                       // Set value to not log this again          
+             }
+           }
+       }
+                                                    
+   if(alarmActivated==2)  {                         // If alarm is activated on delay, take this action
+    if(millis()-alarmDelay >=60000)
      {
       alarmState(1);                          
      }
                            }  
     
-   }
-
+    
+      break;
+  }
+  
   case 4: 
     {                 //Door chime mode
       
       if(pollAlarm(1) !=0 && millis()-chimeDelay >=10000) {   // Only activate door chime every 10sec or more
         chirpAlarm(3,ALARMSIRENPIN);                  
+        logChime();
         chimeDelay = millis();   
          }
         break;    
@@ -315,7 +332,7 @@ readCommand();                                 //Check for user serial commands
         alarmState(0);                                       // Deactivate Alarm if armed. (Must do this _before_unlocking door.
       }                                            
 
-      doorUnlock(DOORPIN1);                                           // Unlock the door.
+      doorUnlock(1);                                           // Unlock the door.
       door1locktimer=millis();
       wiegand26.initReaderOne();
       long keypadTime = 0;                                     // Timeout counter for  reader with key pad
@@ -373,7 +390,7 @@ readCommand();                                 //Check for user serial commands
       }
 
      door2locktimer=millis();
-      doorUnlock(DOORPIN2);                        // Unlock the door.
+      doorUnlock(2);                        // Unlock the door.
     }
     else if(checkSuperuser(reader2) !=1) {           //  no match, log entry written
       logAccessDenied(reader2,2);                 //  no tickee, no laundree
@@ -443,12 +460,12 @@ void runCommand(long command) {         // Run any commands entered at the pin p
  resistors can be used to check more zones from the analog pins.
  */
 
-void alarmState(byte alarmLevel) {                 //Changes the alarm status
+void alarmState(byte alarmLevel) {                    //Changes the alarm status based on this flow
 
   logalarmState(alarmLevel); 
   switch (alarmLevel) {                              
   case 0: 
-    {                                              // If alarmLevel == 0 turn off alarm.   
+    {                                                 // If alarmLevel == 0 turn off alarm.   
       digitalWrite(ALARMSIRENPIN, LOW);
       digitalWrite(ALARMSTROBEPIN, LOW);
       alarmActivated = alarmLevel;                    //Set global alarm level variable
@@ -456,7 +473,7 @@ void alarmState(byte alarmLevel) {                 //Changes the alarm status
     }        
   case 1: 
     { 
-      digitalWrite(ALARMSIRENPIN, HIGH);        // If alarmLevel == 1 turn on strobe lights and siren
+      digitalWrite(ALARMSIRENPIN, HIGH);               // If alarmLevel == 1 turn on strobe lights and siren
       digitalWrite(ALARMSTROBEPIN, HIGH);          
       alarmActivated = alarmLevel;                    //Set global alarm level variable
       break;  
@@ -464,12 +481,16 @@ void alarmState(byte alarmLevel) {                 //Changes the alarm status
 
   case 2:                                        
     {
-      if(sensor[1] == true){
-      alarmDelay=millis(); }
       alarmActivated = alarmLevel;
       break;    
     }
 
+  case 3:                                        
+    {
+
+      alarmActivated = alarmLevel;
+      break;    
+    }
     /*
       case 4: {
      vaporize_intruders(STUN);
@@ -481,8 +502,8 @@ void alarmState(byte alarmLevel) {                 //Changes the alarm status
      */
 
   default: 
-    {                                            //     Exceptional cases kill alarm outputs
-      digitalWrite(ALARMSIRENPIN, LOW);         //      Turn off siren and strobe
+    {                                            // Exceptional cases kill alarm outputs
+      digitalWrite(ALARMSIRENPIN, LOW);          // Turn off siren and strobe
       digitalWrite(ALARMSTROBEPIN, LOW);        
     }  
 
@@ -503,35 +524,33 @@ byte pollAlarm(byte input){
 
   // Return 1 if sensor shows < pre-defined voltage.
   if(abs((analogRead(analogsensorPins[input])/4) - EEPROM.read(EEPROM_ALARMZONES+input)) >SENSORTHRESHOLD){
-
-   if(sensor[input]==false) {            // Only log and save if sensor activation is new.
-    logalarmSensor(input);
-    EEPROM.write(EEPROM_ALARM,input);    // Save the alarm sensor tripped to eeprom
-    sensor[input]==false;   }            // Set value to not log this again
      return 1;
 
   }
   else return 0;
 }
 
-void trainAlarm(){                       //Train the system about the default states of the alarm pins.
-  int temp[5]={
-    0,0,0,0,0  };
+void trainAlarm(){                       // Train the system about the default states of the alarm pins.
+  armAlarm(0);                           // Disarm alarm first
+  alarmState(0);
+
+  int temp[5]={0};
   int avg;
 
   logtrainAlarm();
-  for(int i=0; i<numAlarmPins; i++) {  //Save results to EEPROM
+  for(int i=0; i<numAlarmPins; i++) {         
 
-    for(int j=0; j<5;j++){
+    for(int j=0; j<5;j++){                          
       temp[j]=analogRead(analogsensorPins[i]);
+      delay(20);                                         // Give the readings time to settle
     }
-    avg=((temp[0]+temp[1]+temp[2]+temp[3]+temp[4])/20);
+    avg=((temp[0]+temp[1]+temp[2]+temp[3]+temp[4])/20);  // Average the results to get best values
     Serial.print("Sensor ");
     Serial.print(i);
     Serial.print(" ");
     Serial.print("value:");
     Serial.println(avg);
-    EEPROM.write((EEPROM_ALARMZONES+i),byte(avg)); 
+    EEPROM.write((EEPROM_ALARMZONES+i),byte(avg));   //Save results to EEPROM
     avg=0;
   }
 
@@ -539,7 +558,7 @@ void trainAlarm(){                       //Train the system about the default st
 
 }
 
-void armAlarm(byte level){                       //Arm the alarm and set to level
+void armAlarm(byte level){                       // Arm the alarm and set to level
   alarmArmed = level;
   logalarmArmed(level);
 
@@ -558,7 +577,7 @@ void armAlarm(byte level){                       //Arm the alarm and set to leve
  These function control lock/unlock and user lookup.
  */
 
-int checkSuperuser(long input){       //Check to see if user is in the user list. If yes, return their index value.
+int checkSuperuser(long input){       // Check to see if user is in the user list. If yes, return their index value.
   for(int i=0; i<=numUsers; i++){   
     if(input == superUserList[i]){
       logDate();
@@ -583,7 +602,11 @@ int disableKey(long input){       //Set user key to negative value if we need to
 
 
 void doorUnlock(int input) {          //Send an unlock signal to the door and flash the Door LED
-  digitalWrite(input, HIGH);
+byte dp=1;
+  if(input == 1) dp=DOORPIN1;
+   else(dp =DOORPIN2);
+  
+  digitalWrite(dp, HIGH);
   Serial.print("Door ");
   Serial.print(input,DEC);
   Serial.println(" unlocked");
@@ -591,11 +614,14 @@ void doorUnlock(int input) {          //Send an unlock signal to the door and fl
 }
 
 void doorLock(int input) {          //Send an unlock signal to the door and flash the Door LED
-  digitalWrite(input, LOW);
+byte dp=1;
+  if(input == 1) dp=DOORPIN1;
+   else(dp =DOORPIN2);
+
+  digitalWrite(dp, LOW);
   Serial.print("Door ");
   Serial.print(input,DEC);
   Serial.println(" locked");
-  
 
 }
 void lockall() {                      //Lock down all doors. Can also be run periodically to safeguard system.
@@ -669,11 +695,15 @@ void logReboot() {                                  //Log system startup
   Serial.println("Open Access Control System rebooted.");
 }
 
+void logChime() {
+  logDate();
+  Serial.println("Door opened.");
+}
 
 void logTagPresent (long user, byte reader) {     //Log Tag Presented events
   logDate();
   Serial.print("User ");
-  Serial.print(user,HEX);
+  Serial.print(user,DEC);
   Serial.print(" presented tag at reader ");
   Serial.println(reader,DEC);
 }
@@ -717,7 +747,7 @@ void logalarmSensor(byte zone) {     //Log Alarm zone events
 void logunLock(long user, byte door) {        //Log unlock events
   logDate();
   Serial.print("User ");
-  Serial.print(user,HEX);
+  Serial.print(user,DEC);
   Serial.print(" unlocked door ");
   Serial.println(door,DEC);
 
@@ -862,20 +892,12 @@ void addUser(int userNum, byte userMask, unsigned long tagNumber)       // Inser
 
     for(int i=0; i<5; i++){
       EEPROM.write((offset+i), (EEPROM_buffer[i])); // Store the resulting value in 5 bytes of EEPROM.
-      // Starting at offset.
-
-      // Serial.print("Byte: ");Serial.print(i);Serial.print(" ");Serial.print("Data: ");Serial.println(EEPROM_buffer[i],HEX);
-      // Serial.print(" ");Serial.print("EEPROM ADDRESS: ");Serial.println(offset+i,DEC);
 
     }
 
     Serial.print("User ");
-    Serial.println(userNum,DEC);
-    Serial.print(" with usermask ");
-    Serial.print(userMask,DEC); 
-    Serial.print(" and tag number 0x"); 
-    Serial.print(tagNumber,HEX); 
-    Serial.print(" successfully modified"); 
+    Serial.print(userNum,DEC);
+    Serial.println(" successfully modified"); 
 
 
   }
@@ -921,8 +943,7 @@ int checkUser(unsigned long tagNumber)                                  // Check
   unsigned long EEPROM_buffer=0;                                         // Buffer for recreating tagNumber from the 4 stored bytes.
 
   logDate();
-//  Serial.print("Tag lookup started for:");
-//  Serial.println(tagNumber,HEX);
+
 
   for(int i=EEPROM_FIRSTUSER; i<=(EEPROM_LASTUSER-5); i=i+5){
 
@@ -936,9 +957,6 @@ int checkUser(unsigned long tagNumber)                                  // Check
     EEPROM_buffer= EEPROM_buffer<<8;
     EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i));
 
-    //Serial.print("UserNum:");Serial.print(((i-EEPROM_FIRSTUSER)/5),DEC);
-    //Serial.print("TagNum:");Serial.print(EEPROM_buffer,HEX);
-    //Serial.print("Usermask:");Serial.println(EEPROM.read(i+4));
 
     if(EEPROM_buffer == tagNumber) {
       logDate();
@@ -962,12 +980,13 @@ void dumpUsers()                                                        // Displ
 
   logDate();
   Serial.println("User dump started.");
-
   Serial.print("UserNum:");
   Serial.print("\t");
-  Serial.print("TagNum:");
+  Serial.print("Usermask:");
   Serial.print("\t");
-  Serial.println("Usermask:");
+  Serial.println("TagNum:");
+
+
   for(int i=EEPROM_FIRSTUSER; i<=(EEPROM_LASTUSER-5); i=i+5){
 
 
@@ -984,14 +1003,51 @@ void dumpUsers()                                                        // Displ
 
     Serial.print(((i-EEPROM_FIRSTUSER)/5),DEC);
     Serial.print("\t");
-    Serial.print(EEPROM_buffer,HEX);
+    Serial.print(EEPROM.read(i+4),DEC);
     Serial.print("\t");
-    Serial.println(EEPROM.read(i+4),DEC);
-
+    Serial.println(EEPROM_buffer,DEC);
   }
 }
 
 
+void dumpUser(byte usernum)                                            // Displays a lsit of all users in internal DB
+{                                                                      // Users number 0..NUMUSERS
+
+
+  unsigned long EEPROM_buffer=0;                                       // Buffer for recreating tagNumber from the 4 stored bytes.
+
+
+  Serial.print("UserNum:");
+  Serial.print("\t");
+  Serial.print("Usermask:");
+  Serial.print("\t");
+  Serial.println("TagNum:");
+  if(0<=usernum && usernum <=199){
+
+    int i=usernum*5+EEPROM_FIRSTUSER;
+
+    EEPROM_buffer=0;
+    EEPROM_buffer=(EEPROM.read(i+3));
+    EEPROM_buffer= EEPROM_buffer<<8;
+    EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i+2));
+    EEPROM_buffer= EEPROM_buffer<<8;
+    EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i+1));
+    EEPROM_buffer= EEPROM_buffer<<8;
+    EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i));
+
+
+
+    Serial.print(((i-EEPROM_FIRSTUSER)/5),DEC);
+    Serial.print("\t");
+    Serial.print(EEPROM.read(i+4),DEC);
+    Serial.print("\t");
+    Serial.println(EEPROM_buffer,DEC);
+
+
+  
+  }
+  else Serial.println("Bad user number!");
+}
 void readCommand() {                                               // Displays a serial terminal menu system for
                                                                    // user management and other tasks
 
@@ -1038,8 +1094,12 @@ cmd = cmdString[0][0];
                                        
                switch(cmd) {
 
-                 case 's': {                                                 // List user database
+                 case 'a': {                                                 // List whole user database
                   dumpUsers();
+                  break;
+                           }
+                 case 's': {                                                 // List user 
+                  dumpUser(atoi(cmdString[1]));
                   break;
                            }
  
@@ -1062,6 +1122,8 @@ cmd = cmdString[0][0];
                   case 'u': {
                    alarmState(0);                                       // Set to door chime only/open doors                                                                       
                    armAlarm(4);
+                   doorUnlock(1);
+                   doorUnlock(2);
                    door1Locked==false;
                    door2Locked==false;
                    chirpAlarm(3,ALARMSIRENPIN);   
@@ -1079,31 +1141,34 @@ cmd = cmdString[0][0];
                              }
                   case 'o': {  
                     if(atoi(cmdString[1]) == 1){                                     
-                    doorUnlock(DOORPIN1);                                  // Open the door specified
+                    doorUnlock(1);                                  // Open the door specified
                     door1locktimer=millis();
                                           }                    
                     if(atoi(cmdString[1]) == 2){  
-                     doorUnlock(DOORPIN2);                                        
-                     door1locktimer=millis();               
+                     doorUnlock(2);                                        
+                     door2locktimer=millis();               
                                             }
                      else Serial.print("Invalid door number!");
                      break;
                             } 
 
                    case 'r': {                                                 // Remove a user
+                    dumpUser(atoi(cmdString[1]));
                     deleteUser(atoi(cmdString[1]));
                     break; 
                              }              
 
                    case 'm': {                                                 // Add/change a user                   
+                    dumpUser(atoi(cmdString[1]));
                     addUser(atoi(cmdString[1]), atol(cmdString[2]), atoi(cmdString[3]));
+                    dumpUser(atoi(cmdString[1]));
                     break;
                              }
                              
                   case '?': {                                                  // Display help menu
                    Serial.println("Valid commands are:");
-                   Serial.println("(d)ate, (s)show users, (m)odify user <num>  <usermask> <tagnumber>");
-                   Serial.println("(r)emove_user <num>,(o)open door <num>");
+                   Serial.println("(d)ate, (s)show user, (m)odify user <num>  <usermask> <tagnumber>");
+                   Serial.println("(a)ll user dump,(r)emove_user <num>,(o)open door <num>");
                    Serial.println("(u)nlock all doors,(l)lock all doors");
                    Serial.println("(1)disarm_alarm, (2)arm_alarm,(3)train_alarm ");
                    
@@ -1116,5 +1181,5 @@ cmd = cmdString[0][0];
                                      }  
                    
   }                                    // End of 'if' statement for Serial.available
- } //End of 'if' for string finished
+ }                                     // End of 'if' for string finished
 }                                      // End of function 
