@@ -1,7 +1,7 @@
 /*
  * Open Source RFID Access Controller
  *
- * 2/14/2011 v1.25
+ * 2/14/2011 v1.26
  * Arclight - arclight@23.org
  * Danozano - danozano@gmail.com
  *
@@ -52,10 +52,10 @@
 
 #define queeg      111111       // Name and badge number in HEX. We are not using checksums or site ID, just the whole
                                 // output string from the reader.
-#define arclight   0x14B949D    
-#define kallahar   0x2B46B62
-#define danozano   0x3909D3
-#define flea       0x5555555
+#define arclight   deadbeef   
+#define kallahar   deadbeef
+#define danozano   deadbeef
+#define flea       deadbeef
 
 long  superUserList[] = { arclight,danozano,kallahar,queeg,flea};  // Super user table (cannot be changed by software)
 
@@ -323,7 +323,8 @@ readCommand();                                 //Check for user serial commands
   if(reader1Count >= 26){                                //  tag presented to reader1
     logTagPresent(reader1,1);                            //  write log entry to serial port
     //  CHECK TAG IN OUR LIST OF USERS. -255 = no match
-    if((checkSuperuser(reader1) > 0) ||checkUser(reader1) >0)
+    if((checkSuperuser(reader1) >= 0) || (checkUser(reader1) >0))
+
     {                                                    //  if > 0 there is a match. checkSuperuser (reader1) is the userList () index 
       logAccessGranted(reader1, 1);                      //  log and unlock door 1
 
@@ -365,7 +366,8 @@ readCommand();                                 //Check for user serial commands
       }
 
     }
-    else if(checkSuperuser(reader1) !=1) {           // If no user match, log entry written
+    else 
+     {           // If no user match, log entry written
       logAccessDenied(reader1,1);                 // no tickee, no laundree
     }
 
@@ -378,11 +380,12 @@ readCommand();                                 //Check for user serial commands
   if(reader2Count >= 26){                           //  tag presented to reader2 (No keypad on this reader)
     logTagPresent(reader2,2);                       //  write log entry to serial port
 
-    if((checkSuperuser(reader2) > 0) ||checkUser(reader2) >0) {                // If > 0 there is a match. 
+    if((checkSuperuser(reader2) >= 0) || (checkUser(reader2) >0)) {                // If > 0 there is a match.
+//    if(checkSuperuser(reader2) >= 0)  {
       logAccessGranted(reader2, 2);                // Log and unlock door 2
  
 
-      //  CHECK TAG IN OUR LIST OF USERS. -255 = no match
+      //  CHECK TAG IN OUR LIST OF USERS. -1 == no match
       if(alarmActivated !=0){
 
       
@@ -392,7 +395,8 @@ readCommand();                                 //Check for user serial commands
      door2locktimer=millis();
       doorUnlock(2);                        // Unlock the door.
     }
-    else if(checkSuperuser(reader2) !=1) {           //  no match, log entry written
+    else 
+    {               //  no match, log entry written
       logAccessDenied(reader2,2);                 //  no tickee, no laundree
     }
 
@@ -578,16 +582,19 @@ void armAlarm(byte level){                       // Arm the alarm and set to lev
  */
 
 int checkSuperuser(long input){       // Check to see if user is in the user list. If yes, return their index value.
+int found=-1;
   for(int i=0; i<=numUsers; i++){   
     if(input == superUserList[i]){
       logDate();
       Serial.print("Superuser");
       Serial.print(i,DEC);
-      Serial.print(" found in table.");
-      return(i);
+      Serial.println(" found in table.");
+      found=i;
+      return found;    
     }
   }                   
-  return -255;             //If no, return -255
+ 
+  return found;             //If no, return -1
 }
 
 int disableKey(long input){       //Set user key to negative value if we need to expire.
@@ -703,7 +710,7 @@ void logChime() {
 void logTagPresent (long user, byte reader) {     //Log Tag Presented events
   logDate();
   Serial.print("User ");
-  Serial.print(user,DEC);
+  Serial.print(user,HEX);
   Serial.print(" presented tag at reader ");
   Serial.println(reader,DEC);
 }
@@ -711,7 +718,7 @@ void logTagPresent (long user, byte reader) {     //Log Tag Presented events
 void logAccessGranted(long user, byte reader) {     //Log Access events
   logDate();
   Serial.print("User ");
-  Serial.print(user,DEC);
+  Serial.print(user,HEX);
   Serial.print(" granted access at reader ");
   Serial.println(reader,DEC);
 }                                         
@@ -719,7 +726,7 @@ void logAccessGranted(long user, byte reader) {     //Log Access events
 void logAccessDenied(long user, byte reader) {     //Log Access denied events
   logDate();
   Serial.print("User ");
-  Serial.print(user,DEC);
+  Serial.print(user,HEX);
   Serial.print(" denied access at reader ");
   Serial.println(reader,DEC);
 }   
@@ -941,7 +948,8 @@ int checkUser(unsigned long tagNumber)                                  // Check
   // Find the first offset to check
 
   unsigned long EEPROM_buffer=0;                                         // Buffer for recreating tagNumber from the 4 stored bytes.
-
+  int found=-1;
+  
   logDate();
 
 
@@ -962,13 +970,13 @@ int checkUser(unsigned long tagNumber)                                  // Check
       logDate();
       Serial.print("User located at position ");
       Serial.println(((i-EEPROM_FIRSTUSER)/5),DEC);
-      return(EEPROM.read(i+4));
-
+      found = EEPROM.read(i+4);
+      return found;
     }                             
 
   }
   Serial.println("User not found");
-  return(-255);                        
+  return found;                        
 }
 
 
@@ -1005,7 +1013,7 @@ void dumpUsers()                                                        // Displ
     Serial.print("\t");
     Serial.print(EEPROM.read(i+4),DEC);
     Serial.print("\t");
-    Serial.println(EEPROM_buffer,DEC);
+    Serial.println(EEPROM_buffer,HEX);
   }
 }
 
@@ -1041,7 +1049,7 @@ void dumpUser(byte usernum)                                            // Displa
     Serial.print("\t");
     Serial.print(EEPROM.read(i+4),DEC);
     Serial.print("\t");
-    Serial.println(EEPROM_buffer,DEC);
+    Serial.println(EEPROM_buffer,HEX);
 
 
   
@@ -1052,11 +1060,13 @@ void readCommand() {                                               // Displays a
                                                                    // user management and other tasks
 
 byte stringSize=(sizeof(inString)/sizeof(char));                    
-char cmdString[4][10];                                             // Size of commands (4=number of items to parse, 10 = max length of each)
-                                               
+char cmdString[4][9];                                             // Size of commands (4=number of items to parse, 10 = max length of each)
+
+
 byte j=0;                                                          // Counters
 byte k=0;
 char cmd=0;
+
 
 char ch;
 
@@ -1158,10 +1168,10 @@ cmd = cmdString[0][0];
                     break; 
                              }              
 
-                   case 'm': {                                                 // Add/change a user                   
-                    dumpUser(atoi(cmdString[1]));
-                    addUser(atoi(cmdString[1]), atol(cmdString[2]), atoi(cmdString[3]));
-                    dumpUser(atoi(cmdString[1]));
+                   case 'm': {                                                                // Add/change a user                   
+                   dumpUser(atoi(cmdString[1]));
+                   addUser(atoi(cmdString[1]), atoi(cmdString[2]), strtoul(cmdString[3],NULL,16));                
+                   dumpUser(atoi(cmdString[1]));
                     break;
                              }
                              
