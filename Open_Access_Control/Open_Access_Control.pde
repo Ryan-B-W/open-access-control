@@ -1,7 +1,7 @@
 /*
  * Open Source RFID Access Controller
  *
- * 2/26/2011 v1.28
+ * 2/26/2011 v1.29
  * Arclight - arclight@23.org
  * Danozano - danozano@gmail.com
  *
@@ -57,8 +57,8 @@
  */                               
 
 #define DEBUG 1                                // Set to 2 for display of raw tag numbers in log files, 1 for only denied, 0 for never.               
-#define arclight   0x1234567A                  // Name and badge number in HEX. We are not using checksums or site ID, just the whole
-#define danozano   0xDEADBEEF                  // output string from the reader.
+#define arclight   0xdeadbeef                  // Name and badge number in HEX. We are not using checksums or site ID, just the whole
+#define danozano   0xdeadbeef                  // output string from the reader.
 
 long  superUserList[] = { arclight, danozano};  // Super user table (cannot be changed by software)
 
@@ -270,7 +270,7 @@ readCommand();                                 // Check for commands entered at 
     
    switch(userMask1) {
 
-   case 0:                                 // No outside privs, do not log denied.
+   case 0:                                      // No outside privs, do not log denied.
     {                                      // authenticate only.
     logAccessGranted(reader1, 1);
     break;
@@ -314,7 +314,7 @@ readCommand();                                 // Check for commands entered at 
     else 
     {                                           
     if(checkSuperuser(reader1) >= 0) {              // Check if a superuser, grant access.
-      logAccessGranted(reader1, 1);                 // Log and unlock door 2
+      logAccessGranted(reader1, 1);                 // Log and unlock door 1
          alarmState(0);
          armAlarm(0);                               //  Deactivate Alarm
 //         chirpAlarm(1);                            
@@ -390,8 +390,8 @@ readCommand();                                 // Check for commands entered at 
   }
     else 
     {                                             
-     if(checkSuperuser(reader1) >= 0) {              // Check if a superuser, grant access.
-      logAccessGranted(reader1, 1);                 // Log and unlock door 2
+     if(checkSuperuser(reader2) >= 0) {              // Check if a superuser, grant access.
+      logAccessGranted(reader2, 2);                 // Log and unlock door 2
          alarmState(0);
          armAlarm(0);                              //  Deactivate Alarm
          chirpAlarm(1);                            
@@ -488,19 +488,19 @@ readCommand();                                 // Check for commands entered at 
            }    
  
  /*          
-          if(pollAlarm(0) == 1 ){                  // If this zone is tripped, immediately set Alarm State to 1 (alarm immediate).                                
+          if(pollAlarm(3) == 1 ){                  // If this zone is tripped, immediately set Alarm State to 1 (alarm immediate).                                
             alarmState(1);                        
 
-             if(sensor[0]==false) {               // Only log and save if sensor activation is new.
-              logalarmSensor(0);
-              EEPROM.write(EEPROM_ALARM,0);       // Save the alarm sensor tripped to eeprom                                    
-              sensor[0]=true;                     // Set value to not log this again
+             if(sensor[3]==false) {               // Only log and save if sensor activation is new.
+              logalarmSensor(3);
+              EEPROM.write(EEPROM_ALARM,3);       // Save the alarm sensor tripped to eeprom                                    
+              sensor[3]=true;                     // Set value to not log this again
             }
           } 
           
   */                                                                                              
   
-                             
+/*                             
 
           if(pollAlarm(0) == 1 ){                  // If this zone is tripped, log the action only
           //  if(sensor[0]==false) 
@@ -518,7 +518,7 @@ readCommand();                                 // Check for commands entered at 
            sensor[1]=true;                       // Set value to not log this again for 7.5s
           }           
          }
-                                                    
+        */                                            
       }
    if(alarmActivated==1)  {                         // If alarm is actively going off (siren/strobe) for 10 min (6e5=10min)
     if(millis()-alarmSirenTimer >=3.6e6)            // Check for alarm interval expired and turn off if needed
@@ -1336,7 +1336,7 @@ if(inCount==0) {
                             } 
                   case 'u': {
                    alarmState(0);                                       // Set to door chime only/open doors                                                                       
-                   armAlarm(4);                                         // Unlock all doors
+                   armAlarm(4);
                    doorUnlock(1);
                    doorUnlock(2);
                    door1Locked=false;
@@ -1352,7 +1352,6 @@ if(inCount==0) {
                             }                            
                    case '3': {                                            // Train alarm sensors
                    trainAlarm();
-                   chirpAlarm(3);
                    break;
                              }
                    case '9': {                                            // Show site status
@@ -1360,9 +1359,9 @@ if(inCount==0) {
                    Serial.println(alarmArmed,DEC);
                    Serial.print("Alarm siren state (1=activated):");
                    Serial.println(alarmActivated,DEC);
-                   Serial.print("Front door open state (0=closed):");
+                   Serial.print("Door 1 open state (0=closed):");
                    Serial.println(pollAlarm(3),DEC);
-                   Serial.print("Roll up door open state");
+                   Serial.print("Door 2 open state (0=closed):");
                    Serial.println(pollAlarm(2),DEC);                  
                    Serial.print("Door 1 unlocked state(1=locked):");  
                    Serial.println(door1Locked);                    
@@ -1402,7 +1401,7 @@ if(inCount==0) {
                    Serial.println("(d)ate, (s)show user, (m)odify user <num>  <usermask> <tagnumber>");
                    Serial.println("(a)ll user dump,(r)emove_user <num>,(o)open door <num>");
                    Serial.println("(u)nlock all doors,(l)lock all doors");
-                   Serial.println("(1)disarm_alarm, (2)arm_alarm,(3)train_alarm (9)site_status");
+                   Serial.println("(1)disarm_alarm, (2)arm_alarm,(3)train_alarm (9)show_status");
                    
                    break;
                             }
