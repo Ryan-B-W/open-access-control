@@ -1,21 +1,24 @@
 /*
  * Open Source RFID Access Controller
  *
- * 2/26/2011 v1.29
+ * 3/28/2011 v1.31
  * Arclight - arclight@23.org
  * Danozano - danozano@gmail.com
  *
  * Notice: This is free software and is probably buggy. Use it at
  * at your own peril.  Use of this software may result in your
  * doors being left open, your stuff going missing, or buggery by
- * high seas pirates. You are warned.
+ * high seas pirates. No warranties are expressed on implied.
+ * You are warned.
  *
  *
  * For latest downloads, including Eagle CAD files for the hardware, check out
  * http://code.google.com/p/open-access-control/downloads/list
  *
- * Latest update fixes pin assignments to line up with new hardware design
+ * Latest update moves strings to PROGMEM to free up memory and adds a 
+ * console password feature.
  * 
+ *
  * This program interfaces the Arduino to RFID, PIN pad and all
  * other input devices using the Wiegand-26 Communications
  * Protocol. It is recommended that the keypad inputs be
@@ -37,6 +40,10 @@
  * Reader 2: pins 4,5
  * Ethernet: pins 10,11,12,13 (Not connected to the board, reserved for the Ethernet shield)
  *
+ * Quickstart tips: 
+ * Set the console password(PRIVPASSWORD) value to a numeric DEC or HEX value.
+ * Define the static user list by swiping a tag and copying the value received into the #define values shown below 
+ * Compile and upload the code, then log in via serial console at 57600,8,N,1
  *
  */
 
@@ -47,6 +54,8 @@
 #include <SPI.h>          
 #include <Server.h>
 #include <Client.h>
+#include <avr/pgmspace.h>
+
 
 #include <DS1307.h>       // DS1307 RTC Clock/Date/Time chip library
 #include <WIEGAND26.h>    // Wiegand 26 reader format libary
@@ -56,12 +65,14 @@
 /* Static user List - Implemented as an array for testing and access override 
  */                               
 
-#define DEBUG 1                                // Set to 2 for display of raw tag numbers in log files, 1 for only denied, 0 for never.               
-#define arclight   0xdeadbeef                  // Name and badge number in HEX. We are not using checksums or site ID, just the whole
-#define danozano   0xdeadbeef                  // output string from the reader.
+#define DEBUG 1                         // Set to 2 for display of raw tag numbers in log files, 1 for only denied, 0 for never.               
 
-long  superUserList[] = { arclight, danozano};  // Super user table (cannot be changed by software)
+#define gonzo   0x1234                  // Name and badge number in HEX. We are not using checksums or site ID, just the whole
+#define snake   0x1234                  // output string from the reader.
+#define satan   0x1234
+long  superUserList[] = { gonzo, snake, satan};  // Super user table (cannot be changed by software)
 
+#define PRIVPASSWORD 0x6502             // Console "priveleged mode" password
 
 #define DOORDELAY 5000                  // How long to open door lock once access is granted. (2500 = 2.5s)
 #define SENSORTHRESHOLD 100             // Analog sensor change that will trigger an alarm (0..255)
@@ -76,10 +87,10 @@ long  superUserList[] = { arclight, danozano};  // Super user table (cannot be c
 #define NUMUSERS  ((EEPROM_LASTUSER - EEPROM_FIRSTUSER)/5)  //Define number of internal users (200 for UNO/Duemillanova)
 
 
-#define DOORPIN1 relayPins[0]           // Define door 1 pin
-#define DOORPIN2 relayPins[2]           // Define door 2 pin
-#define ALARMSTROBEPIN relayPins[3]     // Define the reader LED pin
-#define ALARMSIRENPIN  relayPins[1]     // Define the alarm siren pin
+#define DOORPIN1 relayPins[0]           // Define the pin for electrified door 1 hardware
+#define DOORPIN2 relayPins[2]           // Define the pin for electrified door 2 hardware
+#define ALARMSTROBEPIN relayPins[3]     // Define the "non alarm: output pin. Can go to a strobe, small chime, etc
+#define ALARMSIRENPIN  relayPins[1]     // Define the alarm siren pin. This should be a LOUD siren for alarm purposes.
 
 byte reader1Pins[]={2,3};               // Reader 1 connected to pins 4,5
 byte reader2Pins[]= {4,5};              // Reader2 connected to pins 6,7
@@ -135,6 +146,9 @@ unsigned long keypadValue=0;
 // Serial terminal buffer (needs to be global)
 char inString[40]={0};                                         // Size of command buffer (<=128 for Arduino)
 byte inCount=0;
+boolean privmodeEnabled = false;                               // Switch for enabling "priveleged" commands
+
+
 
 /* Create an instance of the various C++ libraries we are using.
  */
@@ -143,6 +157,27 @@ DS1307 ds1307;        // RTC Instance
 WIEGAND26 wiegand26;  // Wiegand26 (RFID reader serial protocol) library
 PCATTACH pcattach;    // Software interrupt library
 
+/* Set up some strings that will live in flash instead of memory. This saves our precious 2k of
+ * RAM for something else.
+*/
+
+const prog_uchar rebootMessage[]          PROGMEM  = {"Access Control System rebooted."};
+
+const prog_uchar doorChimeMessage[]       PROGMEM  = {"Front Door opened."};
+const prog_uchar doorslockedMessage[]     PROGMEM  = {"All Doors relocked"};
+const prog_uchar alarmtrainMessage[]      PROGMEM  = {"Alarm Training performed."};
+const prog_uchar privsdeniedMessage[]     PROGMEM  = {"Access Denied. Priveleged mode is not enabled."};
+const prog_uchar privsenabledMessage[]    PROGMEM  = {"Priveleged mode enabled."};
+const prog_uchar privsdisabledMessage[]   PROGMEM  = {"Priveleged mode disabled."};
+
+const prog_uchar consolehelpMessage1[]    PROGMEM  = {"Valid commands are:"};
+const prog_uchar consolehelpMessage2[]    PROGMEM  = {"(d)ate, (s)show user, (m)odify user <num>  <usermask> <tagnumber>"};
+const prog_uchar consolehelpMessage3[]    PROGMEM  = {"(a)ll user dump,(r)emove_user <num>,(o)open door <num>"};
+const prog_uchar consolehelpMessage4[]    PROGMEM  = {"(u)nlock all doors,(l)lock all doors"};
+const prog_uchar consolehelpMessage5[]    PROGMEM  = {"(1)disarm_alarm, (2)arm_alarm,(3)train_alarm (9)show_status"};
+const prog_uchar consolehelpMessage6[]    PROGMEM  = {"(e)nable <password> - enable or disable priveleged mode"};                                       
+
+const prog_uchar consoledefaultMessage[]  PROGMEM  = {"Invalid command. Press '?' for help."};
 
 
 void setup(){           // Runs once at Arduino boot-up
@@ -211,7 +246,7 @@ readCommand();                                 // Check for commands entered at 
 
     else {                        
       doorUnlock(1); 
-      door2locktimer=0;
+      door1locktimer=0;
                         }                         
    }
 
@@ -230,14 +265,15 @@ readCommand();                                 // Check for commands entered at 
                          }   
   }   
 
-  /*  Sets a "failsafe" time to lock up shop every night.
+  /*  Set a "failsafe" time to lock up every night.
   */
 
-  ds1307.getDateDs1307(&second, &minute, &hour, &dayOfWeek, &dayOfMonth, &month, &year);    //Lock shop up every night at 0330
-  if(hour==3 && minute==0 && door1Locked==false){
+  ds1307.getDateDs1307(&second, &minute, &hour, &dayOfWeek, &dayOfMonth, &month, &year);   // Get the current date/time
+
+  if(hour==23 && minute==59 && door1Locked==false){
          doorLock(1);
          door1Locked==true;      
-         Serial.println("Door 1 locked for 0330 bed time.");
+         Serial.println("Door 1 locked for 2359 bed time.");
   }
 
           
@@ -262,6 +298,7 @@ readCommand();                                 // Check for commands entered at 
 /* Check a user's security level and take action as needed. The
 *  usermask is a variable from 0..255. By default, 0 and 255 are for
 *  locked out users or uninitialized records.
+*  Modify these for each door as needed.
 */
 
   userMask1=checkUser(reader1);    
@@ -271,13 +308,13 @@ readCommand();                                 // Check for commands entered at 
    switch(userMask1) {
 
    case 0:                                      // No outside privs, do not log denied.
-    {                                      // authenticate only.
+    {                                           // authenticate only.
     logAccessGranted(reader1, 1);
     break;
     }
 
-   case 20:                                               //Limited hours user
-    {
+   case 20:                                                // Example Limited hours user
+    {                                                      // Can enter from 5:00pm to 11:00pm
     ds1307.getDateDs1307(&second, &minute, &hour, &dayOfWeek, &dayOfMonth, &month, &year);    
     if((hour >=17) && (hour <=23)){
          logAccessGranted(reader1, 1);                    // Log and unlock door 2
@@ -290,7 +327,7 @@ readCommand();                                 // Check for commands entered at 
      break;
     }      
 
-   case 255:                                    // Locked out      
+   case 255:                                              // Locked out user     
     {
      Serial.print("User ");
      Serial.print(userMask1,DEC);
@@ -302,8 +339,7 @@ readCommand();                                 // Check for commands entered at 
     {            
          logAccessGranted(reader1, 1);           // Log and unlock door 1
          alarmState(0);
-         armAlarm(0);                            //  Deactivate Alarm
-       //  chirpAlarm(1);                            
+         armAlarm(0);                            //  Deactivate Alarm                  
          door1locktimer=millis();
          doorUnlock(1);                          // Unlock the door.
          break;
@@ -317,7 +353,6 @@ readCommand();                                 // Check for commands entered at 
       logAccessGranted(reader1, 1);                 // Log and unlock door 1
          alarmState(0);
          armAlarm(0);                               //  Deactivate Alarm
-//         chirpAlarm(1);                            
          door1locktimer=millis();
          doorUnlock(1);                             // Unlock the door.
                                       }
@@ -335,6 +370,7 @@ readCommand();                                 // Check for commands entered at 
   
   if(reader2Count >= 26){                                // Tag presented to reader 2
     logTagPresent(reader2,2);                            // Write log entry to serial port
+    chirpAlarm(1);                                       // Chirp alarm to show that tag input done              
                                                          // CHECK TAG IN OUR LIST OF USERS. -1 = no match                                  
   keypadGranted=false;                                   // Reset the keypad authorized variable
 
@@ -349,7 +385,12 @@ readCommand();                                 // Check for commands entered at 
     break;
     }
       
-
+  case 10:                         // Authenticating immediately locks up and arms alarm
+    {                              // 
+    logAccessGranted(reader2, 2);
+    runCommand(0x2);
+    break;
+    }
     
    case 20:                                               //Limited hours user
     {
@@ -357,8 +398,7 @@ readCommand();                                 // Check for commands entered at 
     if((hour >=17) && (hour <=23)){
          logAccessGranted(reader2, 2);                    // Log and unlock door 2
          alarmState(0);
-         armAlarm(0);                                     //  Deactivate Alarm
-      //   chirpAlarm(1);                            
+         armAlarm(0);                                     //  Deactivate Alarm                           
          door2locktimer=millis();
          doorUnlock(2);                                   // Unlock the door.
          keypadGranted=1;
@@ -378,8 +418,7 @@ readCommand();                                 // Check for commands entered at 
     {            
          logAccessGranted(reader2, 2);           // Log and unlock door 2
          alarmState(0);
-         armAlarm(0);                            //  Deactivate Alarm
-       //  chirpAlarm(1);                            
+         armAlarm(0);                            //  Deactivate Alarm                          
          door2locktimer=millis();
          doorUnlock(2);                          // Unlock the door.
          keypadGranted=1;
@@ -451,9 +490,11 @@ readCommand();                                 // Check for commands entered at 
    3=
    4=door chime only (Unlock DOOR1, Check zone 0/chirp alarm if active)
    
+   Modify the alarm sequence to meet your needs.
    */
 
   switch(alarmArmed) {
+
 
  case 0:
   {
@@ -466,7 +507,23 @@ readCommand();                                 // Check for commands entered at 
                                                     
       if(alarmActivated==0){                       // If alarm is armed but not currently alarming, check sensor zones.
 
-
+          if(pollAlarm(0) == 1 ){                   // If this zone is tripped, immediately set Alarm State to 2 (alarm delay).
+              alarmState(2);                        // Also starts the delay timer    
+              alarmDelay=millis();
+              if(sensor[0]==false) {                // Only log and save if sensor activation is new.
+               logalarmSensor(0);
+               EEPROM.write(EEPROM_ALARM,0);        // Save the alarm sensor tripped to eeprom                                      
+               sensor[0]=true;                      // Set value to not log this again                                                                        
+              }
+           } 
+          if(pollAlarm(1) == 1 ){                  // If this zone is tripped, immediately set Alarm State to 1 (alarm immediate).
+            alarmState(1);      
+             if(sensor[1]==false) {                // Only log and save if sensor activation is new.
+              logalarmSensor(1);
+              EEPROM.write(EEPROM_ALARM,1);        // Save the alarm sensor tripped to eeprom                                     
+              sensor[1]=true;                      // Set value to not log this again
+             }  
+          }
           if(pollAlarm(2) == 1 ){                  // If this zone is tripped, immediately set Alarm State to 1 (alarm immediate).
             alarmState(1);      
              if(sensor[2]==false) {                // Only log and save if sensor activation is new.
@@ -486,39 +543,9 @@ readCommand();                                 // Check for commands entered at 
                sensor[3]=true;                      // Set value to not log this again                                                                        
               }
            }    
- 
- /*          
-          if(pollAlarm(3) == 1 ){                  // If this zone is tripped, immediately set Alarm State to 1 (alarm immediate).                                
-            alarmState(1);                        
-
-             if(sensor[3]==false) {               // Only log and save if sensor activation is new.
-              logalarmSensor(3);
-              EEPROM.write(EEPROM_ALARM,3);       // Save the alarm sensor tripped to eeprom                                    
-              sensor[3]=true;                     // Set value to not log this again
-            }
-          } 
-          
-  */                                                                                              
+                                                                                           
   
-/*                             
-
-          if(pollAlarm(0) == 1 ){                  // If this zone is tripped, log the action only
-          //  if(sensor[0]==false) 
-          if((millis() - sensorDelay[0]) >=7500) {
-           logalarmSensor(0);   
-           sensorDelay[0]=millis();                                                                  
-           sensor[0]=true;      }                 // Set value to not log this again for 7.5s              
-           }
-
-          if(pollAlarm(1) == 1 ){                  // If this zone is tripped, log the action only
-         //   if(sensor[1]==false) 
-          if((millis() - sensorDelay[1]) >=7500) {
-           logalarmSensor(1);   
-           sensorDelay[1]=millis();                                                            
-           sensor[1]=true;                       // Set value to not log this again for 7.5s
-          }           
-         }
-        */                                            
+                                           
       }
    if(alarmActivated==1)  {                         // If alarm is actively going off (siren/strobe) for 10 min (6e5=10min)
     if(millis()-alarmSirenTimer >=3.6e6)            // Check for alarm interval expired and turn off if needed
@@ -599,30 +626,41 @@ void runCommand(long command) {         // Run any commands entered at the pin p
 
       doorUnlock(1);                        // Set global alarm level variable
       door1Locked=false;
-      doorClosed=false;                      // 200 chirps = ~30 seconds delay
+      doorClosed=false;                      
 
-      for(byte i=0; i<100; i++) {
+      for(byte i=0; i<60; i++) {
          if((pollAlarm(3) !=0) && doorClosed==false) {             // Set door to unlocked until opened
           lockall();    
           doorClosed=true; 
          }      
-        chirpAlarm(1);
+         digitalWrite(ALARMSTROBEPIN, HIGH);                       // Alarm activates after 60-second cycle.
+         delay(500);
+         digitalWrite(ALARMSTROBEPIN, LOW);
+         delay(500);                        
       }
+      chirpAlarm(2);
       armAlarm(1);                 
-      lockall();                                                   // Lock door on exit just in case
+      lockall();                                                   // Lock all doors on exit just in case sensor not tripped
       break; 
     }
     
   case 0x3: 
     {
-      armAlarm(4);                         // Set to door chime only
-      chirpAlarm(3);   
-      break;  
+     if(alarmArmed != 4)
+      {
+       armAlarm(4);                         // Toggle the door chime mode
+      }
+     else
+     {
+      armAlarm(0);
+     }
+     chirpAlarm(3);   
+     break;  
     }
 
   case 0x4:                               // Set doors to remain open
     {
-      armAlarm(0);
+      armAlarm(4);
       doorUnlock(1);
       doorUnlock(2);
       door1Locked=false;
@@ -678,7 +716,7 @@ void alarmState(byte alarmLevel) {                    //Changes the alarm status
   case 1: 
     { 
       digitalWrite(ALARMSIRENPIN, HIGH);               // If alarmLevel == 1 turn on strobe lights and siren
-  //    digitalWrite(ALARMSTROBEPIN, HIGH);          
+  //    digitalWrite(ALARMSTROBEPIN, HIGH);            // Optionally activate yoru strobe/chome
       alarmSirenTimer=millis();
       alarmActivated = alarmLevel;                    //Set global alarm level variable
       logalarmTriggered();
@@ -753,7 +791,6 @@ void trainAlarm(){                       // Train the system about the default s
   int temp[5]={0};
   int avg;
 
-  logtrainAlarm();
   for(int i=0; i<numAlarmPins; i++) {         
 
     for(int j=0; j<5;j++){                          
@@ -770,6 +807,8 @@ void trainAlarm(){                       // Train the system about the default s
     avg=0;
   }
 
+  logDate();
+  PROGMEMprint(alarmtrainMessage);
 
 
 }
@@ -800,7 +839,7 @@ int found=-1;
       logDate();
       Serial.print("Superuser ");
       Serial.print(i,DEC);
-      Serial.println(" found in table.");
+      Serial.println(" found.");
       found=i;
       return found;    
     }
@@ -851,13 +890,25 @@ void lockall() {                      //Lock down all doors. Can also be run per
   digitalWrite(DOORPIN2,LOW);
   door1Locked=true;
   door2Locked=true;
-  Serial.print("All Doors ");
-  Serial.println(" relocked");
+  PROGMEMprint(doorslockedMessage);
+
 }
 
 /* Logging Functions - Modify these as needed for your application. 
  Logging may be serial to USB or via Ethernet (to be added later)
  */
+
+
+void PROGMEMprint(const prog_uchar str[])    //Function to retrieve logging strings from program memory
+{
+  char c;
+  if(!str) return;
+  while((c = pgm_read_byte(str++))){
+    Serial.print(c,BYTE);
+                                   }
+    Serial.println();
+}
+
 
 void logDate()
 {
@@ -913,12 +964,12 @@ void logDate()
 
 void logReboot() {                                  //Log system startup
   logDate();
-  Serial.println("Open Access Control System rebooted.");
+    PROGMEMprint(rebootMessage);
 }
 
 void logChime() {
   logDate();
-  Serial.println("Door opened.");
+    PROGMEMprint(doorChimeMessage);
 }
 
 void logTagPresent (long user, byte reader) {     //Log Tag Presented events
@@ -953,10 +1004,8 @@ void logkeypadCommand(byte reader, long command){
   Serial.println(reader,DEC);
 }  
 
-void logtrainAlarm() {
-  logDate();
-  Serial.println("Alarm Training performed.");
-}
+
+
 
 void logalarmSensor(byte zone) {     //Log Alarm zone events
   logDate();
@@ -991,7 +1040,10 @@ void logalarmArmed(byte level) {        //Log unlock events
   Serial.println(level,DEC);
 }
 
-
+void logprivFail() {
+//  Serial.println("Priv mode disabled");
+PROGMEMprint(privsdeniedMessage);
+                   }
 
 
 void hardwareTest(long iterations)
@@ -1040,13 +1092,13 @@ void hardwareTest(long iterations)
     digitalWrite(7,HIGH);
     digitalWrite(8,HIGH);
     digitalWrite(9,HIGH);
-    Serial.println("Relays 0..3 activated");
+    Serial.println("Relays 0..3 on");
     delay(2000);
     digitalWrite(6,LOW);
     digitalWrite(7,LOW);
     digitalWrite(8,LOW);
     digitalWrite(9,LOW);
-    Serial.println("Relays 0..3 deactivated");
+    Serial.println("Relays 0..3 off");
 
   }
 }
@@ -1169,48 +1221,7 @@ int checkUser(unsigned long tagNumber)                                  // Check
 }
 
 
-void dumpUsers()                                                        // Displays a list of all users in internal DB
-{                                                                       // Users number 0..NUMUSERS
 
- 
-  unsigned long EEPROM_buffer=0;                                        // Buffer for recreating tagNumber from the 4 stored bytes.
-
-  logDate();
-  Serial.println("User dump started.");
-  Serial.print("UserNum:");
-  Serial.print("\t");
-  Serial.print("Usermask:");
-  Serial.print("\t");
-  Serial.println("TagNum:");
-
-
-  for(int i=EEPROM_FIRSTUSER; i<=(EEPROM_LASTUSER-5); i=i+5){
-
-
-    EEPROM_buffer=0;
-    EEPROM_buffer=(EEPROM.read(i+3));
-    EEPROM_buffer= EEPROM_buffer<<8;
-    EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i+2));
-    EEPROM_buffer= EEPROM_buffer<<8;
-    EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i+1));
-    EEPROM_buffer= EEPROM_buffer<<8;
-    EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i));
-
-
-
-    Serial.print(((i-EEPROM_FIRSTUSER)/5),DEC);
-    Serial.print("\t");
-    Serial.print(EEPROM.read(i+4),DEC);
-    Serial.print("\t");
-     if(DEBUG==2){
-      Serial.println(EEPROM_buffer,HEX);
-                 }
-     else {
-           if(EEPROM_buffer != 0xFFFFFFFF) {
-             Serial.println("********");}
-           }
-  }
-}
 
 
 void dumpUser(byte usernum)                                            // Return information ona particular entry in the local DB
@@ -1220,11 +1231,6 @@ void dumpUser(byte usernum)                                            // Return
   unsigned long EEPROM_buffer=0;                                       // Buffer for recreating tagNumber from the 4 stored bytes.
 
 
-  Serial.print("UserNum:");
-  Serial.print("\t");
-  Serial.print("Usermask:");
-  Serial.print("\t");
-  Serial.println("TagNum:");
   if((0<=usernum) && (usernum <=199)){
 
     int i=usernum*5+EEPROM_FIRSTUSER;
@@ -1250,7 +1256,7 @@ void dumpUser(byte usernum)                                            // Return
                  }
      else {
            if(EEPROM_buffer != 0xFFFFFFFF) {
-             Serial.println("********");}
+             Serial.print("********");}
            }
 
 
@@ -1280,14 +1286,14 @@ char cmd=0;
 char ch;
 
  if (Serial.available()) {                                       // Check if user entered a command this round	                                  
-  ch = Serial.read();
-  if( ch == '\r' || inCount >=stringSize-1)  { // is this the terminating carriage return
+  ch = Serial.read();                                            
+  if( ch == '\r' || inCount >=stringSize-1)  {                   // Check if this is the terminating carriage return
    inString[inCount] = 0;
    inCount=0;
                          }
   else{
   (inString[inCount++] = ch); }
-  Serial.print(ch);
+  //Serial.print(ch);                        // Turns echo on or off
 
 
 if(inCount==0) {
@@ -1309,12 +1315,54 @@ if(inCount==0) {
                                        
                switch(cmd) {
 
+
+                 case 'e': {                                                 // Enable "privileged" commands at console
+                   logDate();
+                  if (strtoul(cmdString[1],NULL,16) == PRIVPASSWORD)
+                  {
+                   PROGMEMprint(privsenabledMessage);
+                   privmodeEnabled=true;
+                  }
+                  else {
+                      PROGMEMprint(privsdisabledMessage);
+                     privmodeEnabled=false;
+                        }
+                   break;
+                            }
+                
+//privmodeEnabled=true;            //Debugging statement
+
+                
                  case 'a': {                                                 // List whole user database
-                  dumpUsers();
+                  if(privmodeEnabled==true) {                 
+                      logDate();
+                      Serial.println("User dump started.");
+                      Serial.print("UserNum:");
+                      Serial.print(" ");
+                      Serial.print("Usermask:");
+                      Serial.print(" ");
+                      Serial.println("TagNum:");
+
+                      for(int i=0; i<(NUMUSERS); i++){
+                        dumpUser(i);
+                        Serial.println();
+                                                      }
+                                                  }
+                 else{logprivFail();}
                   break;
                            }
+
                  case 's': {                                                 // List user 
-                  dumpUser(atoi(cmdString[1]));
+                  if(privmodeEnabled==true) {
+                     Serial.print("UserNum:");
+                     Serial.print(" ");
+                     Serial.print("Usermask:");
+                     Serial.print(" ");
+                     Serial.println("TagNum:");
+                     dumpUser(atoi(cmdString[1]));
+                     Serial.println();
+                                             }
+                 else{logprivFail();}
                   break;
                            }
  
@@ -1323,35 +1371,47 @@ if(inCount==0) {
                    Serial.println();
                    break;
                             }
+
                   case '1': {                                               // Deactivate alarm                                       
+                 if(privmodeEnabled==true) {
                    armAlarm(0);
                    alarmState(0);
                    chirpAlarm(1);  
+                                            }
+                   else{logprivFail();}
                    break;
                             }
                   case '2': {                                               // Activate alarm with delay.
-                   chirpAlarm(20);                                          // 200 chirps = ~30 seconds delay
-                   armAlarm(1);                    
-                   break; 
+                      chirpAlarm(20);                                          // 200 chirps = ~30 seconds delay
+                      armAlarm(1);                           
+                      break; 
                             } 
+
                   case 'u': {
-                   alarmState(0);                                       // Set to door chime only/open doors                                                                       
-                   armAlarm(4);
-                   doorUnlock(1);
-                   doorUnlock(2);
-                   door1Locked=false;
-                   door2Locked=false;
-                   chirpAlarm(3);   
+                    if(privmodeEnabled==true) {
+                      alarmState(0);                                       // Set to door chime only/open doors                                                                       
+                      armAlarm(4);
+                      doorUnlock(1);
+                      doorUnlock(2);
+                      door1Locked=false;
+                      door2Locked=false;
+                      chirpAlarm(3);   
+                                               }
+                                               
+                   else{logprivFail();}
                    break;  
                             }
-                  case 'l': {
-                                                                           // Lock all doors
+                  case 'l': {                                             // Lock all doors          
                    lockall();
                    chirpAlarm(1);   
                    break;  
                             }                            
+
                    case '3': {                                            // Train alarm sensors
+                  if(privmodeEnabled==true) {
                    trainAlarm();
+                                            }
+                   else{logprivFail();}
                    break;
                              }
                    case '9': {                                            // Show site status
@@ -1359,9 +1419,9 @@ if(inCount==0) {
                    Serial.println(alarmArmed,DEC);
                    Serial.print("Alarm siren state (1=activated):");
                    Serial.println(alarmActivated,DEC);
-                   Serial.print("Door 1 open state (0=closed):");
+                   Serial.print("Front door open state (0=closed):");
                    Serial.println(pollAlarm(3),DEC);
-                   Serial.print("Door 2 open state (0=closed):");
+                   Serial.print("Roll up door open state (0=closed):");
                    Serial.println(pollAlarm(2),DEC);                  
                    Serial.print("Door 1 unlocked state(1=locked):");  
                    Serial.println(door1Locked);                    
@@ -1370,44 +1430,57 @@ if(inCount==0) {
                    break;
                              }
                              
-                  case 'o': {  
+                 case 'o': {  
+                  if(privmodeEnabled==true) {
                     if(atoi(cmdString[1]) == 1){                                     
                     doorUnlock(1);                                       // Open the door specified
                     door1locktimer=millis();
+                    break;
                                           }                    
-                    if(atoi(cmdString[1]) == 2){  
+                   if(atoi(cmdString[1]) == 2){  
                      doorUnlock(2);                                        
-                     door2locktimer=millis();               
+                     door2locktimer=millis();
+                     break;               
                                             }
-                     else Serial.print("Invalid door number!");
-                     break;
+                    Serial.print("Invalid door number!");
+                                       }
+
+                   else{logprivFail();}
+                    break;
                             } 
 
                    case 'r': {                                                 // Remove a user
+                  if(privmodeEnabled==true) {
                     dumpUser(atoi(cmdString[1]));
                     deleteUser(atoi(cmdString[1]));
+                                             }
+                  else{logprivFail();}
                     break; 
                              }              
 
                    case 'm': {                                                                // Add/change a user                   
+                 if(privmodeEnabled==true) {
                    dumpUser(atoi(cmdString[1]));
                    addUser(atoi(cmdString[1]), atoi(cmdString[2]), strtoul(cmdString[3],NULL,16));                
                    dumpUser(atoi(cmdString[1]));
+                                            }
+                 else{logprivFail();}                                    
+                             
                     break;
-                             }
+                          }
                              
                   case '?': {                                                  // Display help menu
-                   Serial.println("Valid commands are:");
-                   Serial.println("(d)ate, (s)show user, (m)odify user <num>  <usermask> <tagnumber>");
-                   Serial.println("(a)ll user dump,(r)emove_user <num>,(o)open door <num>");
-                   Serial.println("(u)nlock all doors,(l)lock all doors");
-                   Serial.println("(1)disarm_alarm, (2)arm_alarm,(3)train_alarm (9)show_status");
-                   
+                     PROGMEMprint(consolehelpMessage1);
+                     PROGMEMprint(consolehelpMessage2);
+                     PROGMEMprint(consolehelpMessage3);
+                     PROGMEMprint(consolehelpMessage4);
+                     PROGMEMprint(consolehelpMessage5);                     
+                     PROGMEMprint(consolehelpMessage6);                  
                    break;
                             }
 
                    default:  
-                    Serial.println("Invalid command. Press '?' for help.");
+                    PROGMEMprint(consoledefaultMessage);
                     break;
                                      }  
                    
