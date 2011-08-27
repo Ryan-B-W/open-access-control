@@ -6,26 +6,26 @@
 
 #ifndef	_WIEGAND26_H_ 
 #define	_WIEGAND26_H_ 
-#endif
 
-#include <WProgram.h>
 
 class WIEGAND26 {
 public:
-WIEGAND26();
-~WIEGAND26();
-
-
-void initReaderOne(void);
-void initReaderTwo(void);
-void reader1One(void);
-void reader1Zero(void);
-void reader2One(void);
-void reader2Zero(void);
-void initReaderThree(void);
-void reader3One(void);
-void reader3Zero(void);
+   WIEGAND26();
+   ~WIEGAND26();
+   
+   
+   void initReaderOne(void);
+   void initReaderTwo(void);
+   void reader1One(void);
+   void reader1Zero(void);
+   void reader2One(void);
+   void reader2Zero(void);
+   void initReaderThree(void);
+   void reader3One(void);
+   void reader3Zero(void);
 
 private:
 
 };
+
+#endif

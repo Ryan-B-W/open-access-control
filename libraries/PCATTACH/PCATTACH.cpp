@@ -1,4 +1,6 @@
-#include "pins_arduino.h"
+#include <WProgram.h>
+
+#include <pins_arduino.h>
 #include "PCATTACH.h"
 
 /*

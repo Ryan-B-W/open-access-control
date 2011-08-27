@@ -27,13 +27,13 @@ DS1307::~DS1307(){
 
 
 // Convert normal decimal numbers to binary coded decimal
-byte DS1307::decToBcd(byte val)
+uint8_t DS1307::decToBcd(uint8_t val)
 {
   return ( (val/10*16) + (val%10) );
 }
 
 // Convert binary coded decimal to normal decimal numbers
-byte DS1307::bcdToDec(byte val)
+uint8_t DS1307::bcdToDec(uint8_t val)
 {
   return ( (val/16*10) + (val%16) );
 }
@@ -56,13 +56,13 @@ void DS1307::stopDs1307()
 // 3) Sets hour mode to 24 hour clock
 // Assumes you're passing in valid numbers
 
-void DS1307::setDateDs1307(byte second,        // 0-59
-                   byte minute,        // 0-59
-                   byte hour,          // 1-23
-                   byte dayOfWeek,     // 1-7
-                   byte dayOfMonth,    // 1-28/29/30/31
-                   byte month,         // 1-12
-                   byte year)          // 0-99
+void DS1307::setDateDs1307(uint8_t second,        // 0-59
+                   uint8_t minute,        // 0-59
+                   uint8_t hour,          // 1-23
+                   uint8_t dayOfWeek,     // 1-7
+                   uint8_t dayOfMonth,    // 1-28/29/30/31
+                   uint8_t month,         // 1-12
+                   uint8_t year)          // 0-99
 {
    Wire.beginTransmission(DS1307_I2C_ADDRESS);
    Wire.send(0);
@@ -78,13 +78,13 @@ void DS1307::setDateDs1307(byte second,        // 0-59
 }
 
 // Gets the date and time from the ds1307
-void DS1307::getDateDs1307(byte *second,
-          byte *minute,
-          byte *hour,
-          byte *dayOfWeek,
-          byte *dayOfMonth,
-          byte *month,
-          byte *year)
+void DS1307::getDateDs1307(uint8_t *second,
+          uint8_t *minute,
+          uint8_t *hour,
+          uint8_t *dayOfWeek,
+          uint8_t *dayOfMonth,
+          uint8_t *month,
+          uint8_t *year)
 {
   // Reset the register pointer
   Wire.beginTransmission(DS1307_I2C_ADDRESS);
@@ -107,12 +107,12 @@ void DS1307::getDateDs1307(byte *second,
   // Change these values to what you want to set your clock to.
   // You probably only want to set your clock once and then remove
   // the setDateDs1307 call.
-byte   second = 20;
-byte   minute = 9;
-byte   hour = 19;
-byte   dayOfWeek = 6;
-byte   dayOfMonth = 12;
-byte   month = 9;
-byte   year = 9;
+uint8_t   second = 20;
+uint8_t   minute = 9;
+uint8_t   hour = 19;
+uint8_t   dayOfWeek = 6;
+uint8_t   dayOfMonth = 12;
+uint8_t   month = 9;
+uint8_t   year = 9;
 setDateDs1307(second, minute, hour, dayOfWeek, dayOfMonth, month, year);
 */

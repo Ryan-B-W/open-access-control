@@ -4,11 +4,15 @@
  *  Version 1.0 - Last updated 4/12/2010 by arclight@gmail.com
 */
 
+#include <WProgram.h>
+
 #include <WIEGAND26.h>
 
-extern byte reader1Pins[];          // Reader 1 connected to pins [n,n]
-extern byte reader2Pins[];          // Reader2 connected to pins [n,n]
-extern byte reader3Pins[];          // Reader3 connected to pins [n,n]
+#include <stdint.h>
+
+extern uint8_t reader1Pins[];          // Reader 1 connected to pins [n,n]
+extern uint8_t reader2Pins[];          // Reader2 connected to pins [n,n]
+extern uint8_t reader3Pins[];          // Reader3 connected to pins [n,n]
 extern long reader1;
 extern int  reader1Count;
 extern long reader2;
@@ -32,7 +36,7 @@ WIEGAND26::~WIEGAND26(){
 
 
 void WIEGAND26::initReaderOne(void) {
-  for(byte i=0; i<2; i++){
+  for(uint8_t i=0; i<2; i++){
     pinMode(reader1Pins[i], OUTPUT);
     digitalWrite(reader1Pins[i], HIGH); // enable internal pull up causing a one
     digitalWrite(reader1Pins[i], LOW); // disable internal pull up causing zero and thus an interrupt
@@ -46,7 +50,7 @@ void WIEGAND26::initReaderOne(void) {
 
 
 void  WIEGAND26::initReaderTwo(void) {
-  for(byte i=0; i<2; i++){
+  for(uint8_t i=0; i<2; i++){
     pinMode(reader2Pins[i], OUTPUT);
     digitalWrite(reader2Pins[i], HIGH); // enable internal pull up causing a one
     digitalWrite(reader2Pins[i], LOW); // disable internal pull up causing zero and thus an interrupt
@@ -95,7 +99,7 @@ void  WIEGAND26::reader2Zero(void) {
 
 
 void  WIEGAND26::initReaderThree(void) {
- for(byte i=0; i<2; i++){
+ for(uint8_t i=0; i<2; i++){
  pinMode(reader3Pins[i], OUTPUT);
  digitalWrite(reader3Pins[i], HIGH); // enable internal pull up causing a one
  digitalWrite(reader3Pins[i], LOW); // disable internal pull up causing zero and thus an interrupt
