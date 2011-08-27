@@ -1,128 +1,146 @@
-/* Wiegand26 library - adapted from Crazy People by Mike Cook
- *  http://www.thebox.myzen.co.uk/Hardware/Crazy_People.html
- *
- *  Version 1.0 - Last updated 4/12/2010 by arclight@gmail.com
-*/
-
 #include <WProgram.h>
-
 #include <WIEGAND26.h>
+#include <PCATTACH.h>
 
-#include <stdint.h>
+//--- file statics -----------------------------------------------------------------------------------------------------
 
-extern uint8_t reader1Pins[];          // Reader 1 connected to pins [n,n]
-extern uint8_t reader2Pins[];          // Reader2 connected to pins [n,n]
-extern uint8_t reader3Pins[];          // Reader3 connected to pins [n,n]
-extern long reader1;
-extern int  reader1Count;
-extern long reader2;
-extern int  reader2Count;
-extern long reader3;
-extern int reader3Count;
+static void initPin(uint8_t pin)
+{
+   pinMode(pin, OUTPUT);
+   digitalWrite(pin, HIGH); // enable internal pull up causing a one
+   digitalWrite(pin, LOW); // disable internal pull up causing zero and thus an interrupt
 
-
-WIEGAND26::WIEGAND26(){
+   pinMode(pin, INPUT);
+   digitalWrite(pin, HIGH); // enable internal pull up
 }
 
-WIEGAND26::~WIEGAND26(){
-}
+//typedef (void(WIEGAND26::*)()) wiegfunc;
+
+WIEGAND26* cs[10]={0,0,0,0,0};
+
+void func00() { cs[0]->do0(); }
+void func01() { cs[0]->do1(); }
+void func10() { cs[0]->do0(); }
+void func11() { cs[0]->do1(); }
+... a bunch of times...?
+
+static g_attach(WIEGAND26* who, uint8_t p0, uint8_t p1)
+{
 
 
-
-/* Wiegand Reader code. Modify as needed or comment out unused readers.
- *  system supports up to 3 independent readers.
- */
-
-
-
-void WIEGAND26::initReaderOne(void) {
-  for(uint8_t i=0; i<2; i++){
-    pinMode(reader1Pins[i], OUTPUT);
-    digitalWrite(reader1Pins[i], HIGH); // enable internal pull up causing a one
-    digitalWrite(reader1Pins[i], LOW); // disable internal pull up causing zero and thus an interrupt
-    pinMode(reader1Pins[i], INPUT);
-    digitalWrite(reader1Pins[i], HIGH); // enable internal pull up
-  }
-  delay(10);
-  reader1Count=0;
-  reader1=0;
 }
 
 
-void  WIEGAND26::initReaderTwo(void) {
-  for(uint8_t i=0; i<2; i++){
-    pinMode(reader2Pins[i], OUTPUT);
-    digitalWrite(reader2Pins[i], HIGH); // enable internal pull up causing a one
-    digitalWrite(reader2Pins[i], LOW); // disable internal pull up causing zero and thus an interrupt
-    pinMode(reader2Pins[i], INPUT);
-    digitalWrite(reader2Pins[i], HIGH); // enable internal pull up
-  }
-  delay(10);
-  reader2Count=0;
-  reader2=0;
+static g_detatch(WIEGAND26* who, uint8_t p0, uint8_t p1)
+{
+
+
 }
 
 
+//--- constructors/destructor ------------------------------------------------------------------------------------------
 
-void  WIEGAND26::reader1One() {
-  if(digitalRead(reader1Pins[1]) == LOW){
-    reader1Count++;
-    reader1 = reader1 << 1;
-    reader1 |= 1;
-  }
+WIEGAND26::WIEGAND26()
+   : p0_(0)
+   , p1_(0)
+{
 }
 
-void  WIEGAND26::reader1Zero() {
-  if(digitalRead(reader1Pins[0]) == LOW){
-    reader1Count++;
-    reader1 = reader1 << 1;
-   
-  }
-}
-
-
-void  WIEGAND26::reader2One() {
-  if(digitalRead(reader2Pins[1]) == LOW){
-    reader2Count++;
-    reader2 = reader2 << 1;
-    reader2 |= 1;
-  }
-}
-
-void  WIEGAND26::reader2Zero(void) {
-  if(digitalRead(reader2Pins[0]) == LOW){
-    reader2Count++;
-    reader2 = reader2 << 1;  
-  }
-}
-
-
-
-void  WIEGAND26::initReaderThree(void) {
- for(uint8_t i=0; i<2; i++){
- pinMode(reader3Pins[i], OUTPUT);
- digitalWrite(reader3Pins[i], HIGH); // enable internal pull up causing a one
- digitalWrite(reader3Pins[i], LOW); // disable internal pull up causing zero and thus an interrupt
- pinMode(reader3Pins[i], INPUT);
- digitalWrite(reader3Pins[i], HIGH); // enable internal pull up
- }
- delay(10);
- reader3Count=0;
- reader3=0;
- }
  
- void  WIEGAND26::reader3One(void) {
- if(digitalRead(reader3Pins[1]) == LOW){
- reader3Count++;
- reader3 = reader3 << 1;
- reader3 |= 1;
- }
- }
+WIEGAND26::~WIEGAND26()
+{
+   if( p0_ )
+      detach();
+}
+
+//--- alphabetic -------------------------------------------------------------------------------------------------------
+
+
+
+void WIEGAND26::attach( uint8_t p0, uint8_t p1)
+{
+   // sanity check
+   if( p0_ )
+      detatch();
+
+   void(*func)() = reinterpret_cast<void(*)()>(&WIEGAND26::toggledLineOne);
+
+   // setup the interupts
+   pcattach.PCattachInterrupt(p0_, (void(*)())&toggledLineZero, CHANGE);
+   pcattach.PCattachInterrupt(p1_, &WIEGAND26::toggledLineOne, CHANGE);
+
+   // init the pins
+   initPin(p0_);
+   initPin(p1_);
+
+   // sleep a bit and then clear the system state
+   delay(10);
+   idReset();
+   readReset();
+}
+
+
+void WIEGAND26::detach()
+{
+   pcattach.PCdetachInterrupt(p0_);
+   pcattach.PCdetachInterrupt(p1_);
+   readReset();
+   idReset();
+   p0_ = 0;
+   p1_ = 0;
+}
+
+
+uint32_t WIEGAND26::getID()
+{
+   uint32_t rv; // return value
+   // don't provide stale IDs.
+   unsigned long now = millis();
+   if( (now - idTime_) > ID_TIMEOUT)
+      rv = 0;
+   else
+      rv = id_;
+   idReset();
+   return rv;
+}
+
+
+void WIEGAND26::shiftIn(uint32_t val)
+{
+   // timeout check between now and the last bit
+   unsigned long now = millis();
+   if( (now - readTime_) > READ_TIMEOUT)
+      readReset();
+   readTime_ = now;
+   // shift up and shift the bit in
+   readValue_ <<= 1;
+   readValue_ |= val;
+   ++readCount_;
+   // if its a whole ID, then store it
+   if( readCount_ == ID_SIZE )
+   {
+      // can't overwrite an existing value to quickly, so only overwrite a stale one:
+      if( (readTime_ - idTime_) > ID_TIMEOUT)
+      {
+         id_ = readValue_;
+         idTime_ = readTime_;
+      }
+      readReset();  // and clear out the read!
+   }
+}
+
  
- void  WIEGAND26::reader3Zero(void) {
- if(digitalRead(reader3Pins[0]) == LOW){
- reader3Count++;
- reader3 = reader3 << 1;  
- }
- }
+void WIEGAND26::toggledLineZero()
+{
+   // this logic check for the trailing edge, and if found shifts in the bit via a call
+   if(!digitalRead(p0_))
+      shiftIn(0);
+}
+
  
+void WIEGAND26::toggledLineOne()
+{
+   // this logic check for the trailing edge, and if found shifts in the bit via a call
+   if(!digitalRead(p1_))
+      shiftIn(1);
+}
