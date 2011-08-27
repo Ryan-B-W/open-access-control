@@ -1,5 +1,5 @@
 #include <WProgram.h>
-#include <WIEGAND26.h>
+#include <Wiegand26.h>
 #include <PCATTACH.h>
 
 //--- file statics -----------------------------------------------------------------------------------------------------
@@ -14,9 +14,9 @@ static void initPin(uint8_t pin)
    digitalWrite(pin, HIGH); // enable internal pull up
 }
 
-//typedef (void(WIEGAND26::*)()) wiegfunc;
+//typedef (void(Wiegand26::*)()) wiegfunc;
 
-WIEGAND26* cs[10]={0,0,0,0,0};
+Wiegand26* cs[10]={0,0,0,0,0};
 
 void func00() { cs[0]->do0(); }
 void func01() { cs[0]->do1(); }
@@ -24,14 +24,14 @@ void func10() { cs[0]->do0(); }
 void func11() { cs[0]->do1(); }
 ... a bunch of times...?
 
-static g_attach(WIEGAND26* who, uint8_t p0, uint8_t p1)
+static g_attach(Wiegand26* who, uint8_t p0, uint8_t p1)
 {
 
 
 }
 
 
-static g_detatch(WIEGAND26* who, uint8_t p0, uint8_t p1)
+static g_detatch(Wiegand26* who, uint8_t p0, uint8_t p1)
 {
 
 
@@ -40,14 +40,14 @@ static g_detatch(WIEGAND26* who, uint8_t p0, uint8_t p1)
 
 //--- constructors/destructor ------------------------------------------------------------------------------------------
 
-WIEGAND26::WIEGAND26()
+Wiegand26::Wiegand26()
    : p0_(0)
    , p1_(0)
 {
 }
 
  
-WIEGAND26::~WIEGAND26()
+Wiegand26::~Wiegand26()
 {
    if( p0_ )
       detach();
@@ -57,17 +57,17 @@ WIEGAND26::~WIEGAND26()
 
 
 
-void WIEGAND26::attach( uint8_t p0, uint8_t p1)
+void Wiegand26::attach( uint8_t p0, uint8_t p1)
 {
    // sanity check
    if( p0_ )
       detatch();
 
-   void(*func)() = reinterpret_cast<void(*)()>(&WIEGAND26::toggledLineOne);
+   void(*func)() = reinterpret_cast<void(*)()>(&Wiegand26::toggledLineOne);
 
    // setup the interupts
    pcattach.PCattachInterrupt(p0_, (void(*)())&toggledLineZero, CHANGE);
-   pcattach.PCattachInterrupt(p1_, &WIEGAND26::toggledLineOne, CHANGE);
+   pcattach.PCattachInterrupt(p1_, &Wiegand26::toggledLineOne, CHANGE);
 
    // init the pins
    initPin(p0_);
@@ -80,7 +80,7 @@ void WIEGAND26::attach( uint8_t p0, uint8_t p1)
 }
 
 
-void WIEGAND26::detach()
+void Wiegand26::detach()
 {
    pcattach.PCdetachInterrupt(p0_);
    pcattach.PCdetachInterrupt(p1_);
@@ -91,7 +91,7 @@ void WIEGAND26::detach()
 }
 
 
-uint32_t WIEGAND26::getID()
+uint32_t Wiegand26::getID()
 {
    uint32_t rv; // return value
    // don't provide stale IDs.
@@ -105,7 +105,7 @@ uint32_t WIEGAND26::getID()
 }
 
 
-void WIEGAND26::shiftIn(uint32_t val)
+void Wiegand26::shiftIn(uint32_t val)
 {
    // timeout check between now and the last bit
    unsigned long now = millis();
@@ -130,7 +130,7 @@ void WIEGAND26::shiftIn(uint32_t val)
 }
 
  
-void WIEGAND26::toggledLineZero()
+void Wiegand26::toggledLineZero()
 {
    // this logic check for the trailing edge, and if found shifts in the bit via a call
    if(!digitalRead(p0_))
@@ -138,7 +138,7 @@ void WIEGAND26::toggledLineZero()
 }
 
  
-void WIEGAND26::toggledLineOne()
+void Wiegand26::toggledLineOne()
 {
    // this logic check for the trailing edge, and if found shifts in the bit via a call
    if(!digitalRead(p1_))

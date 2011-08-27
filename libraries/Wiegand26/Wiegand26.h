@@ -11,12 +11,12 @@
 
 #include <stdint.h>
 
-/// WIEGAND26 Interface class
-///
-/// @todo fix this example for doxygen parsing 
-/// @example
-/// WIEGAND26 door0;
-/// WIEGAND26 door1;
+/// Wiegand26 Interface class
+/// 
+/// @verbatim Example Usage
+/// 
+/// Wiegand26 door0;
+/// Wiegand26 door1;
 ///
 /// void setup()
 /// {
@@ -34,23 +34,24 @@
 ///    if( memberID )
 ///       // ... do something ...
 /// }
-/// @endblock
-class WIEGAND26
+///
+/// @endverbatim
+class Wiegand26
 {
    enum
    {
       QUEUE_SIZE=5,
       ID_SIZE=26,
-      READ_TIMEOUT=100,
+      READ_TIMEOUT=100,  ///< Timeout between bits in ms  
       ID_TIMEOUT=500,
       
    };
 public:
    /// constructor
-   WIEGAND26();
+   Wiegand26();
    /// destructor
    ///  non-virtual!
-   ~WIEGAND26();
+   ~Wiegand26();
 
    /// connect pins to the Wiegand Reader, initialize variables, and start reading!
    /// @see detach()
