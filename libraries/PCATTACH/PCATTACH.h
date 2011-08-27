@@ -33,4 +33,5 @@ volatile static uint8_t PCintLast[];
 
 };
 
+extern PCATTACH pcattach;
 #endif

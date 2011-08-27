@@ -2,6 +2,7 @@
 
 #include <pins_arduino.h>
 #include "PCATTACH.h"
+PCATTACH pcattach;
 
 /*
  * From http://www.arduino.cc/playground/Main/PcInt
