@@ -1,6 +1,5 @@
 #include <WProgram.h>
 #include <Wiegand26.h>
-#include <PinChangeInt.h>
 
 //--- file statics -----------------------------------------------------------------------------------------------------
 
@@ -13,19 +12,6 @@ static void initPin(uint8_t pin)
    pinMode(pin, INPUT);
    digitalWrite(pin, HIGH); // enable internal pull up
 }
-
-//typedef (void(Wiegand26::*)());
-
-/*
-Wiegand26* cs[10]={0,0,0,0,0};
-
-void func00() { cs[0]->do0(); }
-void func01() { cs[0]->do1(); }
-void func10() { cs[0]->do0(); }
-void func11() { cs[0]->do1(); }
-... a bunch of times...?
-
-*/
 
 //--- constructors/destructor ------------------------------------------------------------------------------------------
 
@@ -46,17 +32,17 @@ Wiegand26::~Wiegand26()
 
 
 
-void Wiegand26::attach( uint8_t p0, uint8_t p1)
+void Wiegand26::attach( unsigned p0, unsigned p1)
 {
    // sanity check
    if( p0_ )
-      detatch();
+      detach();
 
-   void(*func)() = reinterpret_cast<void(*)()>(&Wiegand26::toggledLineOne);
+   p0_ = p0;
+   p1_ = p1;
 
-   // setup the interupts
-   pcattach.PCattachInterrupt(p0_, (void(*)())&toggledLineZero, CHANGE);
-   pcattach.PCattachInterrupt(p1_, &Wiegand26::toggledLineOne, CHANGE);
+   parent::attach( p0_ );
+   parent::attach( p1_ );
 
    // init the pins
    initPin(p0_);
@@ -71,8 +57,8 @@ void Wiegand26::attach( uint8_t p0, uint8_t p1)
 
 void Wiegand26::detach()
 {
-   pcattach.PCdetachInterrupt(p0_);
-   pcattach.PCdetachInterrupt(p1_);
+   parent::detach(p0_);
+   parent::detach(p1_);
    readReset();
    idReset();
    p0_ = 0;
@@ -91,6 +77,19 @@ uint32_t Wiegand26::getID()
       rv = id_;
    idReset();
    return rv;
+}
+
+
+void Wiegand26::handle(unsigned pin, bool transition_high)
+{
+   if( transition_high )
+      return;
+
+   // low transitions generate the pulse.
+   if( pin == p0_)
+      shiftIn(0);
+   else // assume pin == p1_
+      shiftIn(1);
 }
 
 
@@ -116,20 +115,4 @@ void Wiegand26::shiftIn(uint32_t val)
       }
       readReset();  // and clear out the read!
    }
-}
-
- 
-void Wiegand26::toggledLineZero()
-{
-   // this logic check for the trailing edge, and if found shifts in the bit via a call
-   if(!digitalRead(p0_))
-      shiftIn(0);
-}
-
- 
-void Wiegand26::toggledLineOne()
-{
-   // this logic check for the trailing edge, and if found shifts in the bit via a call
-   if(!digitalRead(p1_))
-      shiftIn(1);
 }

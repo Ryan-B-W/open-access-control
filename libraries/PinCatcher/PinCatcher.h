@@ -9,8 +9,8 @@ public:
 
    virtual void handle(unsigned pin, bool transition_high)=0;
 protected:
-   void attach(unsigned pin);
-   void detach(unsigned pin);
+   virtual void attach(unsigned pin);
+   virtual void detach(unsigned pin);
 };
 
 

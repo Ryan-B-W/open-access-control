@@ -10,6 +10,7 @@
 #define	_WIEGAND26_H_ 
 
 #include <stdint.h>
+#include <PinCatcher.h>
 
 /// Wiegand26 Interface class
 /// 
@@ -37,28 +38,34 @@
 ///
 /// @endverbatim
 class Wiegand26
+   : public PinCatcher
 {
+   /// define my parent!
+   typedef PinCatcher parent;
+   
    enum
    {
       QUEUE_SIZE=5,
       ID_SIZE=26,
-      READ_TIMEOUT=100,  ///< Timeout between bits in ms  
-      ID_TIMEOUT=500,
+      READ_TIMEOUT=25,  ///< Timeout between bits in ms, the Weigand26 spec says: 200us to 20ms
+      ID_TIMEOUT=500,   ///< Timeout between ID reads.
       
    };
 public:
    /// constructor
    Wiegand26();
    /// destructor
-   ///  non-virtual!
-   ~Wiegand26();
+   virtual ~Wiegand26();
 
+   /// Parent override
+   virtual void handle(unsigned pin, bool transition_high);
+   
    /// connect pins to the Wiegand Reader, initialize variables, and start reading!
    /// @see detach()
    /// @note No checking is done to ensure another Wiegand26 class doesn't have these pins...
    /// @param p0  Pin0 -- when this pin toggles, a zero is shifted into the id being read
    /// @param p1  Pin1 -- when this pin toggles, a one is shifted into the id being read
-   void attach( uint8_t p0, uint8_t p1);
+   void attach( unsigned p0, unsigned p1);
    /// detach the reader
    /// @see attach()
    void detach();
@@ -71,13 +78,7 @@ public:
    /// @return non zero indicates a valid card id less than ID_TIMEOUT ms old.
    uint32_t getID();
 
-   //private:
-   /// function to manage a line getting toggled, hand to ISR
-   /// @calls toggle() w/ arg of 0
-   void toggledLineZero();
-   /// function to manage a line getting toogeld, hand to ISR
-   /// @calls toggle() w/ arg of 1
-   void toggledLineOne();
+protected:
    /// Single point to maintain for toggle lines
    void shiftIn(uint32_t high);
    /// reset the read related values
@@ -86,8 +87,8 @@ public:
    void idReset() { id_=0; idTime_=0; }
 
 private:
-   uint8_t p0_;  ///< Zero pin
-   uint8_t p1_;  ///< One pin
+   unsigned p0_;  ///< Zero pin
+   unsigned p1_;  ///< One pin
 
    uint32_t id_;  ///< stored id, will get over written
    unsigned long idTime_;  ///< when the id was stored, will get overwritten
