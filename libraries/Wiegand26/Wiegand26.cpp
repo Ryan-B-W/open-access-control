@@ -1,6 +1,6 @@
 #include <WProgram.h>
 #include <Wiegand26.h>
-#include <PCATTACH.h>
+#include <PinChangeInt.h>
 
 //--- file statics -----------------------------------------------------------------------------------------------------
 
@@ -14,8 +14,9 @@ static void initPin(uint8_t pin)
    digitalWrite(pin, HIGH); // enable internal pull up
 }
 
-//typedef (void(Wiegand26::*)()) wiegfunc;
+//typedef (void(Wiegand26::*)());
 
+/*
 Wiegand26* cs[10]={0,0,0,0,0};
 
 void func00() { cs[0]->do0(); }
@@ -24,19 +25,7 @@ void func10() { cs[0]->do0(); }
 void func11() { cs[0]->do1(); }
 ... a bunch of times...?
 
-static g_attach(Wiegand26* who, uint8_t p0, uint8_t p1)
-{
-
-
-}
-
-
-static g_detatch(Wiegand26* who, uint8_t p0, uint8_t p1)
-{
-
-
-}
-
+*/
 
 //--- constructors/destructor ------------------------------------------------------------------------------------------
 

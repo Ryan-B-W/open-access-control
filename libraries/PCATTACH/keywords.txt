@@ -1,2 +1,0 @@
-PCattachInterrupt	KEYWORD2
-PCdetachInterrupt	KEYWORD2
