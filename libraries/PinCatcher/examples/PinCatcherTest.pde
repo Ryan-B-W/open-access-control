@@ -11,15 +11,13 @@
 //
 //  Use tab or enter to see the pin states
 //
+//  q,w,e -- high/low toggle pins 11,12,13 (respectively)
 //  a,s,d -- set pins 11,12,13 (respectively) high
 //  z,x,c -- set pins 11,12,13 (respectively) low
 
 
 
-#include <WProgram.h>
 #include <PinCatcher.h>
-
-#include <pins_arduino.h>
 
 class MyPinCatcher
    : public PinCatcher
@@ -88,7 +86,7 @@ void loop()
    {
       case 13:
       case '\t':
-         Serial.print("\nPins:\t");
+         Serial.print("Pins:\t");
          Serial.print(digitalRead(11));
          Serial.print(digitalRead(12));
          Serial.print(digitalRead(13));
@@ -98,6 +96,9 @@ void loop()
          Serial.println(digitalRead(17));
          break;
          
+      case 'q':
+         digitalWrite(11,!digitalRead(11));
+         break;
       case 'a':
          digitalWrite(11,1);
          break;
@@ -105,6 +106,9 @@ void loop()
          digitalWrite(11,0);
          break;
          
+      case 'w':
+         digitalWrite(12,!digitalRead(12));
+         break;
       case 's':
          digitalWrite(12,1);
          break;
@@ -112,6 +116,9 @@ void loop()
          digitalWrite(12,0);
          break;
          
+      case 'e':
+         digitalWrite(13,!digitalRead(13));
+         break;
       case 'd':
          digitalWrite(13,1);
          break;

@@ -1,6 +1,23 @@
 #ifndef PINCATCHER_IMPL_H
 #define PINCATCHER_IMPL_H
 
+// PinCatcher - A pin change interrupt catcher.
+// Copyright (C) 2011  Scott Bailey.  All rights reserved.
+//
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
 #include <stdint.h>
 
 // forward decleration
@@ -8,6 +25,8 @@ class PinCatcher;
 
 /// The PinCatcher Implementattion class
 ///
+/// The user need never look at this file, instead look at PinCatcher.h.
+/// 
 /// @verbatim
 ///
 /// Pins on the official Arduino ATmega168/328 platforms are set up into 3 ports/banks.  Basically as follows:
@@ -35,7 +54,7 @@ class PinCatcher;
 /// @endverbatim
 ///
 /// @TODO fix this so a fault is generated if an attachement is attempted when a pin slot already has a listener
-///
+/// @TODO throw an error if this isn't an atmega168/328
 class PinCatcher_impl
 {
 public:
@@ -75,6 +94,9 @@ protected:
    uint8_t mask1_;              ///< pins of interest for Bank 1
    uint8_t mask2_;              ///< pins of interest for Bank 2 
 };
+
+
+extern PinCatcher_impl pc_i;
 
    
 #endif

@@ -1,45 +1,23 @@
+// PinCatcher - A pin change interrupt catcher.
+// Copyright (C) 2011  Scott Bailey.  All rights reserved.
+//
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
 #include "PinCatcher_impl.h"
 #include "PinCatcher.h"
-//#include <avr/io.h>
 #include <avr/interrupt.h>
-
-
-//---------------------------------------------------------------------------------------------------------
-
-// this is THE pin catcher implementation
-PinCatcher_impl pc_i;
-
-// these are the Interrupt Service Routines (ISR).  They call the above class.
-void handlePins0_isr()
-{
-   pc_i.handlePins0();
-}
-
-void handlePins1_isr()
-{
-   pc_i.handlePins1();
-}
-
-void handlePins2_isr()
-{
-   pc_i.handlePins2();
-}
-
-// these make the system call our ISRs.  We might be able to optimzes this.
-ISR(PCINT0_vect)
-{
-   handlePins0_isr(); 
-}
-   
-ISR(PCINT1_vect)
-{
-   handlePins1_isr();
-}
-
-ISR(PCINT2_vect)
-{
-   handlePins2_isr();
-}
 
 
 //--- constructors/destructor ------------------------------------------------------------------------------------------
