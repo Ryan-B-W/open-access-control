@@ -6,7 +6,7 @@
 # Datatypes (KEYWORD1)
 #######################################
 
-WIEGAND26   KEYWORD1
+Wiegand26   KEYWORD1
 
 #######################################
 # Methods and Functions (KEYWORD2)
