@@ -1,7 +1,7 @@
 /*
  * Open Source RFID Access Controller
  *
- * 2/3/2013 v3.0.1a
+ * 2/3/2013 v3.0.3a
  * Last build test with Arduino IDE v1.0.1
  * 
  * Arclight - arclight@23.org
@@ -67,6 +67,10 @@
  * Set the console password(PRIVPASSWORD) value to a numeric DEC or HEX value.
  * Define the static user list by swiping a tag and copying the value received into the #define values shown below 
  * Compile and upload the code, then log in via serial console at 57600,8,N,1
+ * 
+ * UPDATED 2/26/2013
+ * Fixed bug with date pasrer causing program to crash and burn. 
+ *
  *
  */
 #define BETA_ARDUINO !(defined(ARDUINO) && ARDUINO >= 100) 
@@ -91,12 +95,12 @@
  */
 #define DEBUG 2                         // Set to 2 for display of raw tag numbers in log files, 1 for only denied, 0 for never.               
 
-#define david   0x00000000             // Name and badge number in HEX. We are not using checksums or site ID, just the whole
-#define david2  0x00000000             // output string from the reader.
-#define jude 0x00000000
-// #define snake   0x1234                  
+#define david   0xDEADBEEF                  // Name and badge number in HEX. We are not using checksums or site ID, just the whole
+#define david2  0xFFFFFFFF
+#define jude 0xBEEFDEAD
+// #define snake   0x1234                  // output string from the reader.
 //#define satan   0x1234
-const long  superUserList[] = { david, david2, jude};  // Super user table (cannot be changed by software)
+const unsigned long  superUserList[] = { david, david2, jude};  // Super user table (cannot be changed by software)
 
 #define PRIVPASSWORD 0x1234             // Console "priveleged mode" password
 
@@ -119,15 +123,11 @@ const long  superUserList[] = { david, david2, jude};  // Super user table (cann
 #define ALARMSTROBEPIN relayPins[2]     // Define the "non alarm: output pin. Can go to a strobe, small chime, etc
 #define ALARMSIRENPIN  relayPins[3]     // Define the alarm siren pin. This should be a LOUD siren for alarm purposes.
 
-uint8_t reader1Pins[]={
-  2,3};               // Reader 1 connected to pins 2,3
-uint8_t reader2Pins[]= {
-  19,18};            // Reader2 connected to pins 19,18
+uint8_t reader1Pins[]={2,3};               // Reader 1 connected to pins 2,3
+uint8_t reader2Pins[]= {19,18};            // Reader2 connected to pins 19,18
 
-const uint8_t analogsensorPins[] = {
-  0,1,2,3,4,5,6,7,8,9,10,11,12,13,14};    // Alarm Sensors connected to other analog pins
-const uint8_t relayPins[]= {
-  31,32,33,34,35,36,37,38};                       // Relay output pins
+const uint8_t analogsensorPins[] = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14};    // Alarm Sensors connected to other analog pins
+const uint8_t relayPins[]= {31,32,33,34,35,36,37,38};                       // Relay output pins
 
 bool door1Locked=true;                        // Keeps track of whether the doors are supposed to be locked right now
 bool door2Locked=true;
@@ -153,11 +153,9 @@ uint8_t second, minute, hour, dayOfWeek, dayOfMonth, month, year;     // Global 
 uint8_t alarmActivated = EEPROM.read(EEPROM_ALARM);                   // Read the last alarm state as saved in eeprom.
 uint8_t alarmArmed = EEPROM.read(EEPROM_ALARMARMED);                  // Alarm level variable (0..5, 0==OFF) 
 
-boolean sensor[4]={
-  false};                                         // Keep track of tripped sensors, do not log again until reset.
-unsigned long sensorDelay[2]={
-  0};                                  // Same as above, but sets a timer for 2 of them. Useful for logging
-// motion detector hits for "occupancy check" functions.
+boolean sensor[4]={false};                                         // Keep track of tripped sensors, do not log again until reset.
+unsigned long sensorDelay[2]={0};                                  // Same as above, but sets a timer for 2 of them. Useful for logging
+                                                                   // motion detector hits for "occupancy check" functions.
 
 // Enable up to 2 door access readers.
 volatile long reader1 = 0;
@@ -178,8 +176,7 @@ int userMask2=0;
 boolean keypadGranted=false;                                   // Variable that is set for authenticated users to use keypad after login
 
 // Serial terminal buffer (needs to be global)
-char inString[70]={
-  0};                                         // Size of command buffer (<=128 for Arduino)
+char inString[70]={0};                                         // Size of command buffer (<=128 for Arduino)
 uint8_t inCount=0;
 boolean privmodeEnabled = false;                               // Switch for enabling "priveleged" commands
 
@@ -265,17 +262,19 @@ void setup(){           // Runs once at Arduino boot-up
   digitalWrite(8,HIGH);
   digitalWrite(17,HIGH);
 
-  // ds1307.setDateDs1307(0,05,17,7,3,3,12);         
-  /*  Sets the date/time (needed once at commissioning)
-   
-   uint8_t second,        // 0-59
-   uint8_t minute,        // 0-59
-   uint8_t hour,          // 1-23
-   uint8_t dayOfWeek,     // 1-7
-   uint8_t dayOfMonth,    // 1-28/29/30/31
-   uint8_t month,         // 1-12
-   uint8_t year);          // 0-99
-   */
+/*
+  // Change these values to what you want to set your clock to.
+  // You probably only want to set your clock once and then remove
+  // the setDateDs1307 call.
+  uint8_t   second = 0;
+  uint8_t   minute = 30;
+  uint8_t   hour = 2;
+  uint8_t   dayOfWeek = 3;
+  uint8_t   dayOfMonth = 26;
+  uint8_t   month = 2;
+  uint8_t   year = 13;
+  ds1307.setDateDs1307(second, minute, hour, dayOfWeek, dayOfMonth, month, year);
+*/
 
   pinMode(16, OUTPUT);                          // Set up the RS-485 TX enable pin on pin 16.
   digitalWrite(16, LOW);
@@ -507,10 +506,10 @@ void loop()                                     // Main branch, runs over and ov
         }
       case 5:                                       //added allow keypad access for selected
         {
-          logAccessGranted(reader2, 2);           // Log and unlock door 1
+          logAccessGranted(reader2, 2);           // Log and unlock door 2
           alarmState(0);
           armAlarm(0);                            //  Deactivate Alarm                  
-          door1locktimer=millis();
+          door2locktimer=millis();
           doorUnlock(2);                          // Unlock the door.
           //         keypadGranted=1;
         }
@@ -563,7 +562,7 @@ void loop()                                     // Main branch, runs over and ov
        alarmState(0);
        armAlarm(0);                              //  Deactivate Alarm
        chirpAlarm(1);                            
-       door1locktimer=millis();
+       door2locktimer=millis();
        doorUnlock(2);                            // Unlock the door.
        keypadGranted=1;
        }
@@ -1205,8 +1204,7 @@ void armAlarm(uint8_t level){                       // Arm the alarm and set to 
  These function control lock/unlock and user lookup.
  */
 
-
-int checkSuperuser(long input){       // Check to see if user is in the user list. If yes, return their index value.
+int checkSuperuser(unsigned long input){       // Check to see if user is in the user list. If yes, return their index value.
   int found=-1;
   for(int i=0; i<=numUsers; i++){   
     if(input == superUserList[i]){
@@ -1218,7 +1216,6 @@ int checkSuperuser(long input){       // Check to see if user is in the user lis
       return found;    
     }
   }                   
-
   return found;             //If no, return -1
 }
 
@@ -1301,14 +1298,29 @@ void PROGMEMprint(const prog_uchar str[])    // Function to retrieve logging str
 void logDate()
 {
   ds1307.getDateDs1307(&second, &minute, &hour, &dayOfWeek, &dayOfMonth, &month, &year);
+  if(hour <= 9) {
+    Serial.print("0");
+  }
   Serial.print(hour, DEC);
   Serial.print(":");
+  if(minute <= 9) {
+    Serial.print("0");
+  }
   Serial.print(minute, DEC);
   Serial.print(":");
+  if(second <= 9) {
+    Serial.print("0");
+  }
   Serial.print(second, DEC);
   Serial.print("  ");
+  if(month <= 9) {
+    Serial.print("0");
+  }
   Serial.print(month, DEC);
   Serial.print("/");
+  if(dayOfMonth <= 9) {
+    Serial.print("0");
+  }
   Serial.print(dayOfMonth, DEC);
   Serial.print("/");
   Serial.print(year, DEC);
@@ -1371,7 +1383,7 @@ void logChime() {
 void logTagPresent (long user, uint8_t reader) {     //Log Tag Presented events
   logDate();
   Serial.print("User ");
-  if(DEBUG==2){ 
+  if(DEBUG>=2){ 
     Serial.print(user,HEX);
   }
   Serial.print(" presented tag at reader ");
@@ -1381,7 +1393,7 @@ void logTagPresent (long user, uint8_t reader) {     //Log Tag Presented events
 void logAccessGranted(long user, uint8_t reader) {     //Log Access events
   logDate();
   Serial.print("User ");
-  if(DEBUG==2){
+  if(DEBUG>=2){
     Serial.print(user,HEX);
   }
   Serial.print(" granted access at reader ");
@@ -1391,7 +1403,7 @@ void logAccessGranted(long user, uint8_t reader) {     //Log Access events
 void logAccessDenied(long user, uint8_t reader) {     //Log Access denied events
   logDate();
   Serial.print("User ");
-  if(DEBUG==1){
+  if(DEBUG>=1){
     Serial.print(user,HEX);
   } 
   Serial.print(" denied access at reader ");
@@ -1444,6 +1456,8 @@ void logprivFail() {
   //  Serial.println("Priv mode disabled");
   PROGMEMprintln(privsdeniedMessage);
 }
+
+
 void hardwareTest(long iterations)
 {
 
@@ -1721,7 +1735,7 @@ void dumpUser(int usernum)                                            // Return 
     Serial.print(EEPROM.read(i+4),DEC);
     Serial.print("\t");
 
-    if(DEBUG==2){
+    if(DEBUG>=2){
       Serial.print((EEPROM_buffer >> 1) & 0xFFFFFF,DEC);
       Serial.print("\t");
       Serial.println(EEPROM_buffer,HEX);
@@ -1861,10 +1875,9 @@ int clockparse(char Data[]){
 void readCommand() {                                               
 
   uint8_t stringSize=(sizeof(inString)/sizeof(char));                    
-  char cmdString[4][9];                                             // Size of commands (4=number of items to parse, 9 = max length of each)
-
-
-  uint8_t j=0;                                                          // Counters
+  char cmdString[7][9];                              // Size of commands (7=number of items to parse, 9 = max length of each)
+                                                     // 
+  uint8_t j=0;                                       // Counters
   uint8_t k=0;
   char cmd=0;
 
@@ -2050,7 +2063,8 @@ void readCommand() {
           PROGMEMprint(statusMessage6); 
           Serial.println(door2Locked); 
           PROGMEMprint(statusMessage7);
-          Serial.print((0.01958*analogRead(15)),2);          // Pin 15 has a 4:1 voltage divider. Reads 0..1024 for 0..20V input at terminals.
+          //Serial.print((0.01958*analogRead(15)),2);          // Pin 15 has a 4:1 voltage divider. Reads 0..1024 for 0..20V input at terminals.
+          Serial.print((analogRead(15)),2);          // Pin 15 has a 4:1 voltage divider. Reads 0..1024 for 0..20V input at terminals.
           Serial.println('V');
           break;
         }
@@ -2110,15 +2124,38 @@ void readCommand() {
         }
 
       case 't': 
-        {                                                                // Change date/time 
+        {                                                                // set the date/time 
           if(privmodeEnabled==true) {
-
-            Serial.print("Old time :");           
+            Serial.print("Old time: ");           
             logDate();
             Serial.println();
-            ds1307.setDateDs1307(atoi(cmdString[1]),atoi(cmdString[2]),atoi(cmdString[3]), 
-            atoi(cmdString[4]),atoi(cmdString[5]),atoi(cmdString[6]),atoi(cmdString[7]));
-            Serial.print("New time :");
+            second = atoi(cmdString[1]);
+            minute = atoi(cmdString[2]);
+            hour = atoi(cmdString[3]);
+            dayOfWeek = atoi(cmdString[4]);
+            dayOfMonth = atoi(cmdString[5]);
+            month = atoi(cmdString[6]);
+            year = atoi(cmdString[7]);
+            if(DEBUG >= 2) {    
+            Serial.print("Your input: ");
+            Serial.print(hour, DEC);
+            Serial.print(":");
+            Serial.print(minute, DEC);
+            Serial.print(":");
+            Serial.print(second, DEC); 
+            Serial.print(" ");
+            Serial.print(month, DEC);
+            Serial.print("/");
+            Serial.print(dayOfMonth, DEC);
+            Serial.print("/");          
+            //Serial.print(cmdString[7]);
+            //Serial.println(atoi(cmdString[7]), DEC);
+            Serial.print(year, DEC); 
+            Serial.print(" DOW:");
+            Serial.println(dayOfWeek, DEC);
+            }                
+            ds1307.setDateDs1307(second, minute, hour, dayOfWeek, dayOfMonth, month, year);
+            Serial.print("New time: ");
             logDate();
             Serial.println();
           }
@@ -2140,6 +2177,34 @@ void readCommand() {
           }
           break;  
         } 
+
+      case 'b': 
+        {
+          if(privmodeEnabled==true) {        // You can ring my bell, ring my bell.
+                 logDate();
+                 Serial.print("You can ring my bell, ring my bell...");
+                 Serial.println();
+                 digitalWrite(ALARMSTROBEPIN, HIGH);
+                 delay(60);
+                 digitalWrite(ALARMSTROBEPIN, LOW);
+                 delay(50);
+                 digitalWrite(ALARMSTROBEPIN, HIGH);
+                 delay(60);
+                 digitalWrite(ALARMSTROBEPIN, LOW);
+                 delay(50);
+                 digitalWrite(ALARMSTROBEPIN, HIGH);
+                 delay(60);
+                 digitalWrite(ALARMSTROBEPIN, LOW);
+                 delay(60);        
+                 Serial.print("Bell ring complete...");
+          }
+
+          else{
+            logprivFail();
+          }
+          break;  
+        } 
+
 
       case '?': 
         {                                                  // Display help menu
