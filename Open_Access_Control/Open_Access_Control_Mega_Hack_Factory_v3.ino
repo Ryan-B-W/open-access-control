@@ -1,7 +1,7 @@
 /*
  * Open Source RFID Access Controller
  *
- * 2/3/2013 v3.0.3a
+ * 2/3/2013 v3.0.5a
  * Last build test with Arduino IDE v1.0.1
  * 
  * Arclight - arclight@23.org
@@ -71,6 +71,11 @@
  * UPDATED 2/26/2013
  * Fixed bug with date pasrer causing program to crash and burn. 
  *
+ * Usermask info:
+ * 1 is a regular user with 24x7 access
+ * 4 has mask 1 rights + door unlock/hold access
+ * 5 has mask 1+4 + the ability to add users to the system
+ * 0 and 255 are disabled and have no access
  *
  */
 #define BETA_ARDUINO !(defined(ARDUINO) && ARDUINO >= 100) 
@@ -95,9 +100,9 @@
  */
 #define DEBUG 2                         // Set to 2 for display of raw tag numbers in log files, 1 for only denied, 0 for never.               
 
-#define david   0xDEADBEEF                  // Name and badge number in HEX. We are not using checksums or site ID, just the whole
-#define david2  0xFFFFFFFF
-#define jude 0xBEEFDEAD
+#define david   0x1234                  // Name and badge number in HEX. We are not using checksums or site ID, just the whole
+#define david2  0x1234
+#define jude 0x1234
 // #define snake   0x1234                  // output string from the reader.
 //#define satan   0x1234
 const unsigned long  superUserList[] = { david, david2, jude};  // Super user table (cannot be changed by software)
@@ -203,13 +208,16 @@ const prog_uchar privsAttemptsMessage[]   PROGMEM  = {"Too many failed attempts.
 
 const prog_uchar consolehelpMessage1[]    PROGMEM  = {"Valid commands are:"};
 const prog_uchar consolehelpMessage2[]    PROGMEM  = {"(d)ate, (s)show user, (m)odify user <num>  <usermask> <tagnumber>"};
-const prog_uchar consolehelpMessage3[]    PROGMEM  = {"(a)ll user dump,(r)emove_user <num>,(o)open door <num>"};
-const prog_uchar consolehelpMessage4[]    PROGMEM  = {"(u)nlock all doors,(l)lock all doors"};
-const prog_uchar consolehelpMessage5[]    PROGMEM  = {"(1)disarm_alarm, (2)arm_alarm,(3)train_alarm (9)show_status"};
-const prog_uchar consolehelpMessage6[]    PROGMEM  = {"(t)ime set <sec 0..59> <min 0..59> <hour 0..23> <day of week 1..7>"};
-const prog_uchar consolehelpMessage7[]    PROGMEM  = {"           <day 0..31> <mon 0..12> <year 0.99>"};
-const prog_uchar consolehelpMessage8[]    PROGMEM  = {"(e)nable <password> - enable or disable priveleged mode"};                                       
-const prog_uchar consolehelpMessage9[]    PROGMEM  = {"(h)ardware test - Test the hardware"};    
+const prog_uchar consolehelpMessage3[]    PROGMEM  = {"Add a key: (n) <tagnumber>"};
+const prog_uchar consolehelpMessage4[]    PROGMEM  = {"(a)ll user dump,(r)emove_user <num>,(o)open door <num>"};
+const prog_uchar consolehelpMessage5[]    PROGMEM  = {"(u)nlock all doors,(l)lock all doors"};
+const prog_uchar consolehelpMessage6[]    PROGMEM  = {"(1)disarm_alarm, (2)arm_alarm,(3)train_alarm (9)show_status"};
+const prog_uchar consolehelpMessage7[]    PROGMEM  = {"(t)ime set <sec 0..59> <min 0..59> <hour 0..23> <day of week 1..7>"};
+const prog_uchar consolehelpMessage8[]    PROGMEM  = {"           <day 0..31> <mon 0..12> <year 0.99>"};
+const prog_uchar consolehelpMessage9[]    PROGMEM  = {"(e)nable <password> - enable or disable priveleged mode"};                                       
+const prog_uchar consolehelpMessage10[]    PROGMEM  = {"(h)ardware test - Test the hardware"}; 
+const prog_uchar consolehelpMessage11[]    PROGMEM  = {"Usermask 0: Unprovisioned 1: Normal, 4: Unlock+hold door, "}; 
+const prog_uchar consolehelpMessage12[]    PROGMEM  = {"         5: N+UH+Adduser access 255: account disabled"};
 const prog_uchar consoledefaultMessage[]  PROGMEM  = {"Invalid command. Press '?' for help."}; 
 
 const prog_uchar statusMessage1[]         PROGMEM  = {"Alarm armed state (1=armed):"};
@@ -381,7 +389,7 @@ void loop()                                     // Main branch, runs over and ov
     reader1Count = 0;    
   }
 
-  if(reader1Count >= 26){                           //  When tag presented to reader1 (No keypad on this reader)
+  if(reader1Count >= 26){                           //  When tag presented to reader1 - Keypad is present
     logTagPresent(reader1,1);                       //  write log entry to serial port
     //    keypadGranted=false;
 
@@ -391,7 +399,8 @@ void loop()                                     // Main branch, runs over and ov
      *  Modify these for each door as needed.
      */
 
-    userMask1=checkUser(reader1);    
+
+    userMask1=getUserMask(reader1);
     if(userMask1>=0) {
       keypad1Time = millis();                  //  Timeout counter for  reader with key pad
 
@@ -402,6 +411,18 @@ void loop()                                     // Main branch, runs over and ov
           logAccessGranted(reader1, 1);
           break;
         }
+
+      case 4:                                       //added allow keypad access for selected
+        {
+          logAccessGranted(reader1, 1);           // Log and unlock door 1
+          alarmState(0);
+          armAlarm(0);                            //  Deactivate Alarm                  
+          door1locktimer=millis();
+          doorUnlock(1);                          // Unlock the door.
+          //         keypadGranted=1;
+          break;
+        }
+
       case 5:                                       //added allow keypad access for selected
         {
           logAccessGranted(reader1, 1);           // Log and unlock door 1
@@ -494,7 +515,7 @@ void loop()                                     // Main branch, runs over and ov
     chirpAlarm(1);                                       // Chirp alarm to show that tag input done              
     // CHECK TAG IN OUR LIST OF USERS. -1 = no match                                  
     //  keypadGranted=false;                                  
-    userMask2=checkUser(reader2);    
+    userMask2=getUserMask(reader2);    
 
     if(userMask2>=0){    
       switch(userMask2) {
@@ -504,6 +525,18 @@ void loop()                                     // Main branch, runs over and ov
           logAccessGranted(reader2, 2);
           break;
         }
+      
+      case 4:                                       //added allow keypad access for selected
+        {
+          logAccessGranted(reader2, 2);           // Log and unlock door 2
+          alarmState(0);
+          armAlarm(0);                            //  Deactivate Alarm                  
+          door2locktimer=millis();
+          doorUnlock(2);                          // Unlock the door.
+          //         keypadGranted=1;
+        }
+
+      
       case 5:                                       //added allow keypad access for selected
         {
           logAccessGranted(reader2, 2);           // Log and unlock door 2
@@ -768,7 +801,7 @@ void runCommand1(long command, uint8_t reader, int userMask) {         // Run an
   }   
 
   if (keypadGranted && (reader == 2)) {
-    if (checkUser(command) == 1) {
+    if (getUserMask(command) == 1) {
       logAccessGranted(reader2, 2);                    // Log and unlock door 2
       alarmState(0);
       armAlarm(0);                                     //  Deactivate Alarm                           
@@ -830,204 +863,25 @@ void runCommand1(long command, uint8_t reader, int userMask) {         // Run an
         }  
         chirpAlarm(3);   
       }
-      if (userMask >= 5){
+      if (userMask >= 4){
         if (command == 4){
           doorUnlock(1);
           door1Locked=false;
           doorUnlock(2);
           door2Locked=false; 
         }
-        if (command == 0x666)
+        if ((command == 0x666) && (userMask == 5))
         { 
-          Serial.print("666 add user ");
+          Serial.print("666 entered...  ");
           Serial.println(invalidkey,HEX);
           if((reader == 1) && (invalidkey != 0)) { 
             addnewkey(invalidkey);
           }
         }  
-
       }
     }   
   }
 }
-/*
-void runCommand(long command, uint8_treader, int userMask) {         // Run any commands entered at the pin pad.
- 
- if (command = 0) {
- Serial.print("Ring Bell");}
- if (command = 911) {
- Serial.print("911   ");}
- if (command = 5){
- Serial.print("5 Lock all   ");
- lockall();
- chirpAlarm(5);}   
- 
- if ((userMask > 0) && (userMask < 255)){
- if (command = 1) {
- Serial.print("1 deactivate   ");
- alarmState(0);                      // Set global alarm level variable
- armAlarm(0);
- chirpAlarm(1);}
- if (command = 1) {
- Serial.print("2 activate   ");
- doorUnlock(1);                        // Set global alarm level variable
- door1Locked=false;
- doorClosed=false;                      // 200 chirps = ~30 seconds delay
- 
- if((pollAlarm(3) == 0) && (pollAlarm(2) == 0)) {                  // Do not arm the alarm if doors are open
- 
- for(uint8_t i=0; i<30; i++) {
- if((pollAlarm(3) !=0) && doorClosed==false) {             // Set door to be unlocked until alarm timeout or user exits
- lockall();    
- doorClosed=true; 
- }      
- digitalWrite(ALARMSTROBEPIN, HIGH);
- delay(500);
- digitalWrite(ALARMSTROBEPIN, LOW);
- delay(500);                        
- }
- chirpAlarm(2);
- armAlarm(1);                 
- lockall();                                                  // Lock all doors on exit
- }
- else {                                                          // Beep the alarm once and exit if attempt made to arm alarm with doors open
- digitalWrite(ALARMSTROBEPIN, HIGH);
- delay(500);
- digitalWrite(ALARMSTROBEPIN, LOW);
- delay(500);                        
- lockall();                                                  // Lock all doors anyway
- } 
- }
- if (userMask > 1){
- if (command = 3){
- if (reader == 1)
- {
- doorUnlock(1);
- door1Locked=false;
- }
- else
- {
- doorUnlock(2);
- door2Locked=false;
- }  
- chirpAlarm(3);   
- }
- 
- }   
- }
- switch(command) {                              
- 
- 
- case 0x1: 
- {                                     // If command = 1, deactivate alarm
- alarmState(0);                      // Set global alarm level variable
- armAlarm(0);
- chirpAlarm(1);
- break;  
- }
- 
- case 0x2: 
- {                                       // If command =2, activate alarm with delay.
- 
- doorUnlock(1);                        // Set global alarm level variable
- door1Locked=false;
- doorClosed=false;                      // 200 chirps = ~30 seconds delay
- 
- if((pollAlarm(3) == 0) && (pollAlarm(2) == 0)) {                  // Do not arm the alarm if doors are open
- 
- for(uint8_t i=0; i<30; i++) {
- if((pollAlarm(3) !=0) && doorClosed==false) {             // Set door to be unlocked until alarm timeout or user exits
- lockall();    
- doorClosed=true; 
- }      
- digitalWrite(ALARMSTROBEPIN, HIGH);
- delay(500);
- digitalWrite(ALARMSTROBEPIN, LOW);
- delay(500);                        
- }
- chirpAlarm(2);
- armAlarm(1);                 
- lockall();                                                  // Lock all doors on exit
- }
- else {                                                          // Beep the alarm once and exit if attempt made to arm alarm with doors open
- digitalWrite(ALARMSTROBEPIN, HIGH);
- delay(500);
- digitalWrite(ALARMSTROBEPIN, LOW);
- delay(500);                        
- lockall();                                                  // Lock all doors anyway
- }
- break; 
- }
- 
- case 0x3: 
- {
- 
- doorLock(1);                       // Set door 2 to stay unlocked, and door 1 to be locked
- doorUnlock(2);
- door1Locked=true;
- door2Locked=false;
- chirpAlarm(3);   
- break;
- 
- if (reader == 1)
- {
- doorUnlock(1);
- door1Locked=false;
- }
- else
- {
- doorUnlock(2);
- door2Locked=false;
- }  
- chirpAlarm(3);   
- break;
- }
- 
- case 0x4:                               // Set doors to remain open
- {
- armAlarm(4);
- doorUnlock(1);
- doorUnlock(2);
- door1Locked=false;
- door2Locked=false;
- chirpAlarm(4);   
- break;
- }
- case 0x5:                               // Relock all doors
- {
- lockall();
- chirpAlarm(5);   
- break;  
- }
- case 0x666:
- { 
- if((reader == 1) && (invalidkey != 0)) { 
- chirpAlarm(6);          // add user from invalidkey
- addnewkey(invalidkey);
- }
- break;
- }   
- case 0x911: 
- {
- chirpAlarm(9);          // Emergency
- armAlarm(1);                   
- alarmState(1);
- break;  
- }
- 
- case 0x20: 
- {                                   // If command = 20, do nothing
- break;
- }    
- default: 
- {       
- break;      
- }  
- }
- 
- 
- }  
- */
 
 /* Alarm System Functions - Modify these as needed for your application. 
  Sensor zones may be polled with digital or analog pins. Unique reader2
@@ -1133,12 +987,13 @@ void ringBell(uint8_t Door){            // Chirp the siren pin or strobe to indi
     Serial.print("Front doorbell has been pushed.");
     Serial.println();
     digitalWrite(ALARMSTROBEPIN, HIGH);
-    delay(150);
+    delay(250);
     digitalWrite(ALARMSTROBEPIN, LOW);
     delay(50);
     digitalWrite(ALARMSTROBEPIN, HIGH);
-    delay(150);
+    delay(250);
     digitalWrite(ALARMSTROBEPIN, LOW);
+    delay(50);
   }
 
 }                                   
@@ -1552,7 +1407,8 @@ void addnewkey(unsigned long tagNumber)
   logDate();
   found = checkUser(tagNumber);
   if (found >= 0){
-    Serial.print("Key alredy exists");
+    Serial.print("Key alredy exists in is slot:");
+    Serial.println(found);
     return; 
   }
 
@@ -1582,8 +1438,7 @@ void addnewkey(unsigned long tagNumber)
 void addUser(int userNum, uint8_t userMask, unsigned long tagNumber)       // Modifies a user an entry in the local database.
 {                                                                       // Users number 0..NUMUSERS
   int offset = (EEPROM_FIRSTUSER+(userNum*5));                          // Find the offset to write this user to
-  uint8_t EEPROM_buffer[5] ={
-    0  };                                           // Buffer for creating the 4 uint8_tvalues to write. Usermask is stored in uint8_t5.
+  uint8_t EEPROM_buffer[5] ={0};                                        // Buffer for creating the 4 uint8_tvalues to write. Usermask is stored in uint8_t5.
 
   logDate();
 
@@ -1605,13 +1460,13 @@ void addUser(int userNum, uint8_t userMask, unsigned long tagNumber)       // Mo
 
     }
 
-    Serial.print("User ");
+    Serial.print("User number ");
     Serial.print(userNum,DEC);
     Serial.println(" successfully modified"); 
 
-
   }
 }
+
 void addUsermask(int userNum, uint8_t userMask)          // Modifies a user mask  in the local database.
 {                                                                       // Users number 0..NUMUSERS
   int offset = (EEPROM_FIRSTUSER+(userNum*5));                          // Find the offset to write this user to
@@ -1625,24 +1480,17 @@ void addUsermask(int userNum, uint8_t userMask)          // Modifies a user mask
   else
   {
 
-
-
     EEPROM_buffer = uint8_t(userMask);
 
-
-
-
     EEPROM.write((offset+4), (EEPROM_buffer)); // Store the resulting value in 5 uint8_ts of EEPROM.
-
-
 
     Serial.print("User ");
     Serial.print(userNum,DEC);
     Serial.println(" mask successfully modified"); 
 
-
   }
 }
+
 void deleteUser(int userNum)                                            // Deletes a user from the local database.
 {                                                                       // Users number 0..NUMUSERS
   int offset = (EEPROM_FIRSTUSER+(userNum*5));                          // Find the offset to write this user to
@@ -1668,8 +1516,6 @@ void deleteUser(int userNum)                                            // Delet
   }
 
 }
-
-
 
 int checkUser(unsigned long tagNumber)                                  // Check if a particular tag exists in the local database. Returns userMask if found.
 {                                                                       // Users number 0..NUMUSERS
@@ -1699,7 +1545,9 @@ int checkUser(unsigned long tagNumber)                                  // Check
       Serial.print("User ");
       Serial.print(((i-EEPROM_FIRSTUSER)/5),DEC);
       Serial.println(" authenticated.");
-      found = EEPROM.read(i+4);
+      //found = EEPROM.read(i+4);
+      // If found, return the user number
+      found = (i-EEPROM_FIRSTUSER)/5;
       return found;
     }                             
   }
@@ -1709,6 +1557,45 @@ int checkUser(unsigned long tagNumber)                                  // Check
   return found;                        
 }
 
+int getUserMask(unsigned long tagNumber)                                  // Check if a particular tag exists in the local database. Returns userMask if found.
+{                                                                       // Users number 0..NUMUSERS
+  // Find the first offset to check
+
+  unsigned long EEPROM_buffer=0;                                         // Buffer for recreating tagNumber from the 4 stored bytes.
+  int found=-1;
+
+  logDate();
+  if (checkSuperuser(tagNumber) >= 0) {
+    return 5;
+  }
+
+  for(int i=EEPROM_FIRSTUSER; i<=(EEPROM_LASTUSER-5); i=i+5){
+
+    EEPROM_buffer=0;
+    EEPROM_buffer=(EEPROM.read(i+3));
+    EEPROM_buffer= EEPROM_buffer<<8;
+    EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i+2));
+    EEPROM_buffer= EEPROM_buffer<<8;
+    EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i+1));
+    EEPROM_buffer= EEPROM_buffer<<8;
+    EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i));
+
+    if((EEPROM_buffer == tagNumber) && (tagNumber !=0xFFFFFFFF) && (tagNumber !=0x0)) {    // Return a not found on blank (0xFFFFFFFF) entries 
+      logDate();
+      Serial.print("User ");
+      Serial.print(((i-EEPROM_FIRSTUSER)/5),DEC);
+      Serial.println(" authenticated.");
+      // Return the usermask if found to function
+      found = EEPROM.read(i+4);
+      //found = (i-EEPROM_FIRSTUSER)/5;
+      return found;
+    }                             
+  }
+
+  Serial.println("User not found");
+  delay(1000);                                                            // Delay to prevent brute-force attacks on reader
+  return found;                        
+}
 
 void dumpUser(int usernum)                                            // Return information ona particular entry in the local DB
 {                                                                      // Users number 0..NUMUSERS
@@ -1730,14 +1617,15 @@ void dumpUser(int usernum)                                            // Return 
     EEPROM_buffer=(EEPROM_buffer ^ EEPROM.read(i));
 
     // Print the Tag Doing X?
+    Serial.print("User\t");
     Serial.print(((i-EEPROM_FIRSTUSER)/5),DEC);
     Serial.print("\t");
     Serial.print(EEPROM.read(i+4),DEC);
     Serial.print("\t");
 
     if(DEBUG>=2){
-      Serial.print((EEPROM_buffer >> 1) & 0xFFFFFF,DEC);
-      Serial.print("\t");
+      //Serial.print((EEPROM_buffer >> 1) & 0xFFFFFF,DEC);
+      //Serial.print("\t");
       Serial.println(EEPROM_buffer,HEX);
     }
     else {
@@ -1955,9 +1843,9 @@ void readCommand() {
             logDate();
             Serial.println("User dump started.");
             Serial.print("UserNum:");
-            Serial.print(" ");
+            Serial.print("\t");
             Serial.print("Usermask:");
-            Serial.print(" ");
+            Serial.print("\t");
             Serial.println("TagNum:");
 
             for(int i=0; i<(NUMUSERS); i++){
@@ -2063,8 +1951,9 @@ void readCommand() {
           PROGMEMprint(statusMessage6); 
           Serial.println(door2Locked); 
           PROGMEMprint(statusMessage7);
-          //Serial.print((0.01958*analogRead(15)),2);          // Pin 15 has a 4:1 voltage divider. Reads 0..1024 for 0..20V input at terminals.
-          Serial.print((analogRead(15)),2);          // Pin 15 has a 4:1 voltage divider. Reads 0..1024 for 0..20V input at terminals.
+          // This doesn't seem to work - ?
+          Serial.print((0.01958*analogRead(15)),2);          // Pin 15 has a 4:1 voltage divider. Reads 0..1024 for 0..20V input at terminals.
+          //Serial.print((analogRead(15)),2);          // Pin 15 has a 4:1 voltage divider. Reads 0..1024 for 0..20V input at terminals.
           Serial.println('V');
           break;
         }
@@ -2122,7 +2011,20 @@ void readCommand() {
 
           break;
         }
+        
+      case 'n': 
+        {                                                                // Add a new user to the first open slot with a default usermask                 
+          if(privmodeEnabled==true) {
+            addnewkey(strtoul(cmdString[1],NULL,16));                
+            //dumpUser(return);
+          }
+          else{
+            logprivFail();
+          }                                    
 
+          break;
+        }
+        
       case 't': 
         {                                                                // set the date/time 
           if(privmodeEnabled==true) {
@@ -2185,18 +2087,18 @@ void readCommand() {
                  Serial.print("You can ring my bell, ring my bell...");
                  Serial.println();
                  digitalWrite(ALARMSTROBEPIN, HIGH);
-                 delay(60);
+                 delay(100);
                  digitalWrite(ALARMSTROBEPIN, LOW);
-                 delay(50);
+                 delay(80);
                  digitalWrite(ALARMSTROBEPIN, HIGH);
-                 delay(60);
+                 delay(100);
                  digitalWrite(ALARMSTROBEPIN, LOW);
-                 delay(50);
+                 delay(80);
                  digitalWrite(ALARMSTROBEPIN, HIGH);
-                 delay(60);
+                 delay(100);
                  digitalWrite(ALARMSTROBEPIN, LOW);
-                 delay(60);        
-                 Serial.print("Bell ring complete...");
+                 delay(80);        
+                 Serial.println("Bell ring complete...");
           }
 
           else{
@@ -2217,6 +2119,9 @@ void readCommand() {
           PROGMEMprintln(consolehelpMessage7); 
           PROGMEMprintln(consolehelpMessage8);
           PROGMEMprintln(consolehelpMessage9);
+          PROGMEMprintln(consolehelpMessage10);
+          PROGMEMprintln(consolehelpMessage11);
+          PROGMEMprintln(consolehelpMessage12);
           break;
         }
 
