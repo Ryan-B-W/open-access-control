@@ -1,7 +1,7 @@
-/* User preferences file - Modify this header to use the correct options for your 
- * installation. 
+/* User preferences file - Modify this header to use the correct options for your
+ * installation.
  * Be sure to set the passwords/etc, as the defaul is "1234"
- */ 
+ */
 
 /* Hardware options
  *
@@ -15,16 +15,16 @@
 #define READER2KEYPAD 0 // Set this if your second reader has a keypad
 
 
-/* Static user List - Implemented as an array for testing and access override 
-*/                               
+/* Static user List - Implemented as an array for testing and access override
+*/
 //#define LCDBOARD                      // Uncomment to use LCD board
                                         // Uses the "cLCD" library that extends arduino LCD class
                                         // Has issues - must use a non-standard pinout, disables other MCP IO pins
                                         // Library is from the TC4 Coffee Roaster project
                                         // Download here: http://code.google.com/p/tc4-shield/
-                                        
-                                        
-#define DEBUG 2                         // Set to 4 for display of raw tag numbers in BIN, 3 for decimal, 2 for HEX, 1 for only denied, 0 for never.               
+
+
+#define DEBUG 2                         // Set to 4 for display of raw tag numbers in BIN, 3 for decimal, 2 for HEX, 1 for only denied, 0 for never.
 #define VERSION 1.40
 #define UBAUDRATE 9600                 // Set the baud rate for the USB serial port
 
@@ -38,4 +38,3 @@
                                         // 1=First and second parity bits stripped (default for most systems)
 #define BEDTIME 23                      //  Set the time to automatically relock front door.
 #define BEDTIME_ENABLED 0               //  Determine whether or not to relock front door nightly
- 
